@@ -13,6 +13,7 @@ import { runFolder, writeRunFile, writeServerSnapshot, writeTrial } from '../src
 import type { Scenario } from '../src/scenarios/types.ts';
 import { exportViewer } from '../src/viewer/export.ts';
 import { startViewer } from '../src/viewer/server.ts';
+import { createDataUrls } from '../viewer/data.ts';
 
 const SCENARIO: Scenario = { id: 'core/site/which-php-version', request: 'Which PHP version does my site run on?', kind: 'read', expect: { answer: { contains: ['8.3'] } } };
 const CHECK = { check: 'answer-contains', pass: true, reason: 'The answer contains every expected text' };
@@ -111,4 +112,37 @@ test('exportViewer writes a self-contained static viewer with run, server, and t
   assert.equal(trial.scenarioId, SCENARIO.id);
   assert.equal(trial.pass, true);
   assert.equal(existsSync(join(outDir, 'data', 'runs', '2026-11-19T07-33-53Z', 'link.json')), false);
+});
+
+test('createDataUrls resolves endpoints for local server, static export, directory base, and query base', () => {
+  const runId = '2026-11-19T07-33-53Z';
+  const trialFile = 'trials/core/site/which-php-version/codex.1.json';
+
+  const local = createDataUrls();
+  assert.equal(local.overview, '/api/overview');
+  assert.equal(local.runs, '/api/runs');
+  assert.equal(local.run(runId), '/api/runs/2026-11-19T07-33-53Z/run.json');
+  assert.equal(local.server(runId), '/api/runs/2026-11-19T07-33-53Z/server.json');
+  assert.equal(local.trial(runId, trialFile), '/api/runs/2026-11-19T07-33-53Z/trials/core/site/which-php-version/codex.1.json');
+
+  const staticUrls = createDataUrls({ staticExport: true });
+  assert.equal(staticUrls.overview, './data/overview.json');
+  assert.equal(staticUrls.runs, './data/runs.json');
+  assert.equal(staticUrls.run(runId), './data/runs/2026-11-19T07-33-53Z/run.json');
+
+  const dirBase = createDataUrls({ dataBase: 'https://example.test/evals/data/' });
+  assert.equal(dirBase.overview, 'https://example.test/evals/data/overview.json');
+  assert.equal(dirBase.runs, 'https://example.test/evals/data/runs.json');
+  assert.equal(dirBase.server(runId), 'https://example.test/evals/data/runs/2026-11-19T07-33-53Z/server.json');
+  assert.equal(dirBase.trial(runId, trialFile), 'https://example.test/evals/data/runs/2026-11-19T07-33-53Z/trials/core/site/which-php-version/codex.1.json');
+
+  const queryBase = createDataUrls({ dataBase: '/proxy.php?suite=core&file=' });
+  assert.equal(queryBase.overview, '/proxy.php?suite=core&file=overview.json');
+  assert.equal(queryBase.runs, '/proxy.php?suite=core&file=runs.json');
+  assert.equal(queryBase.run(runId), '/proxy.php?suite=core&file=runs%2F2026-11-19T07-33-53Z%2Frun.json');
+  assert.equal(queryBase.server(runId), '/proxy.php?suite=core&file=runs%2F2026-11-19T07-33-53Z%2Fserver.json');
+  assert.equal(
+    queryBase.trial(runId, trialFile),
+    '/proxy.php?suite=core&file=runs%2F2026-11-19T07-33-53Z%2Ftrials%2Fcore%2Fsite%2Fwhich-php-version%2Fcodex.1.json',
+  );
 });
