@@ -50,23 +50,75 @@ export function useOptionalJson<T>(url: string | undefined): T | undefined {
   return data;
 }
 
-const STATIC = (globalThis as { __WP_ABILITY_EVALS_STATIC__?: boolean }).__WP_ABILITY_EVALS_STATIC__ === true;
+export interface DataUrls {
+  overview: string;
+  runs: string;
+  run: (id: string) => string;
+  server: (id: string) => string;
+  trial: (id: string, file: string) => string;
+}
 
-export const OVERVIEW_URL = STATIC ? './data/overview.json' : '/api/overview';
-export const RUNS_URL = STATIC ? './data/runs.json' : '/api/runs';
-const RUNS_BASE = STATIC ? './data/runs' : '/api/runs';
+/**
+ * Resolves the viewer's JSON endpoints from a host-provided base URL, static-export mode, or the local server.
+ * A `dataBase` containing `?` (e.g. `/proxy?file=`) receives each relative JSON path as an encoded query value;
+ * any other `dataBase` is treated as a directory prefix (like `./data`).
+ */
+export function createDataUrls(options: { staticExport?: boolean; dataBase?: string } = {}): DataUrls {
+  const dataBase = options.dataBase?.trim() ? options.dataBase : options.staticExport ? './data' : undefined;
+  if (dataBase !== undefined) {
+    if (dataBase.includes('?')) {
+      const urlFor = (relPath: string): string => `${dataBase}${encodeURIComponent(relPath)}`;
+      return {
+        overview: urlFor('overview.json'),
+        runs: urlFor('runs.json'),
+        run: (id) => urlFor(`runs/${id}/run.json`),
+        server: (id) => urlFor(`runs/${id}/server.json`),
+        trial: (id, file) => urlFor(`runs/${id}/${file}`),
+      };
+    }
+    const base = dataBase.replace(/\/+$/, '');
+    const runsBase = `${base}/runs`;
+    return {
+      overview: `${base}/overview.json`,
+      runs: `${base}/runs.json`,
+      run: (id) => `${runsBase}/${encodeURIComponent(id)}/run.json`,
+      server: (id) => `${runsBase}/${encodeURIComponent(id)}/server.json`,
+      trial: (id, file) => `${runsBase}/${encodeURIComponent(id)}/${encodeURI(file)}`,
+    };
+  }
+  return {
+    overview: '/api/overview',
+    runs: '/api/runs',
+    run: (id) => `/api/runs/${encodeURIComponent(id)}/run.json`,
+    server: (id) => `/api/runs/${encodeURIComponent(id)}/server.json`,
+    trial: (id, file) => `/api/runs/${encodeURIComponent(id)}/${encodeURI(file)}`,
+  };
+}
+
+const GLOBAL_CONFIG = globalThis as {
+  __WP_ABILITY_EVALS_STATIC__?: boolean;
+  __WP_ABILITY_EVALS_DATA_BASE__?: string;
+};
+
+const DATA_URLS = createDataUrls({
+  staticExport: GLOBAL_CONFIG.__WP_ABILITY_EVALS_STATIC__ === true,
+  dataBase: typeof GLOBAL_CONFIG.__WP_ABILITY_EVALS_DATA_BASE__ === 'string' ? GLOBAL_CONFIG.__WP_ABILITY_EVALS_DATA_BASE__ : undefined,
+});
+
+export const OVERVIEW_URL = DATA_URLS.overview;
+export const RUNS_URL = DATA_URLS.runs;
 
 export function runUrl(id: string): string {
-  return `${RUNS_BASE}/${encodeURIComponent(id)}/run.json`;
+  return DATA_URLS.run(id);
 }
 
 export function serverUrl(id: string): string {
-  return `${RUNS_BASE}/${encodeURIComponent(id)}/server.json`;
+  return DATA_URLS.server(id);
 }
 
 /** `file` is a trial's file as `run.json` names it. */
 export function trialUrl(id: string, file: string): string {
-  return `${RUNS_BASE}/${encodeURIComponent(id)}/${encodeURI(file)}`;
+  return DATA_URLS.trial(id, file);
 }
 
 export type PrimarySection = 'overview' | 'stories' | 'abilities' | 'inspector' | 'runs';
