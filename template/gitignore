@@ -1,0 +1,6 @@
+node_modules/
+/results/
+/.wp-ability-evals/
+.env
+.env.*
+*.local.md

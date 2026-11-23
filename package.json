@@ -1,0 +1,68 @@
+{
+  "name": "wp-ability-evals",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evals for WordPress abilities: site-owner tasks run by real agents on a real site, graded on what changed on the site.",
+  "license": "GPL-2.0-or-later",
+  "homepage": "https://github.com/Automattic/wp-ability-evals#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Automattic/wp-ability-evals.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Automattic/wp-ability-evals/issues"
+  },
+  "keywords": [
+    "wordpress",
+    "abilities",
+    "evals",
+    "mcp",
+    "ai-agents"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
+  "bin": {
+    "wp-ability-evals": "./dist/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "template",
+    "skills",
+    "guide",
+    "wp-plugins"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/build-viewer.mjs",
+    "prepare": "npm run build",
+    "evals": "node src/cli/main.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p viewer",
+    "pretest": "npm run build",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@wordpress/components": "45.0.0",
+    "@wordpress/dataviews": "22.1.0",
+    "@wordpress/theme": "5.0.0",
+    "@wordpress/ui": "0.27.0",
+    "esbuild": "0.28.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector": "2.16.0",
+    "@wordpress/env": "^12.2.0",
+    "yaml": "^2.9.1"
+  }
+}

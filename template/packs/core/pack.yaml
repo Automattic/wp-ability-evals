@@ -1,0 +1,16 @@
+# The pack for WordPress itself. Format: PackManifest in node_modules/wp-ability-evals/dist/packs/types.d.ts.
+name: core
+title: WordPress
+
+# The abilities a run may execute. `reads` leave the site as it is; `writes` change it.
+abilities:
+  reads:
+    - core/get-site-info
+    - core/get-user-info
+    - core/get-environment-info
+  writes: []
+
+# The entity types this pack's scenarios make claims about: the built-in `posts`, or one of this project's own
+# under `entityTypes` in evals.config.ts.
+entities:
+  - posts

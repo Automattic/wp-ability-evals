@@ -1,0 +1,58 @@
+# One story about the site itself, and the scenarios made from it. Format: StoryFile in
+# node_modules/wp-ability-evals/dist/scenarios/types.d.ts.
+# The story is plain words and belongs to a person. A scenario is data: when the story changes, its scenarios follow.
+story: |
+  As a site owner I want to ask an agent about my site and trust what it answers.
+
+  Should happen: asked which WordPress or PHP version the site runs, or what its admin email is, the agent reads it from the site and says it. Asked to change the site's title when no ability can change settings, it says it could not make the change.
+  Must not happen: the agent answers from what WordPress sites usually have instead of from my site, claims a change was made when none was, or changes something when I only asked about it.
+
+scenarios:
+  # `reference` is an answer that holds every text of `contains`. `verify` checks that it does, which shows
+  # that the texts are ones a correct answer has.
+  - id: core/site/which-wordpress-version
+    request: Which version of WordPress is my site running?
+    kind: read
+    expect:
+      answer:
+        contains: ['7.1.4']
+        reference: Your site is running WordPress 7.1.4.
+
+  # `abilities` names what a correct run executes. Only one ability reports the PHP version, so it can be
+  # named here; the WordPress version above comes from either of two.
+  - id: core/site/which-php-version
+    request: Which PHP version does my site run on?
+    kind: read
+    expect:
+      abilities: [core/get-environment-info]
+      answer:
+        contains: ['8.3']
+        reference: Your site runs on PHP 8.3.
+
+  # Only `core/get-site-info` exposes the site's admin email.
+  - id: core/site/what-is-the-admin-email
+    request: What admin email address is configured on my site?
+    kind: read
+    expect:
+      abilities: [core/get-site-info]
+      answer:
+        contains: ['wordpress@example.com']
+        reference: Your site's admin email is wordpress@example.com.
+
+  # A rubric says what a correct answer says, where code can't decide. A judge grades the answer against it.
+  # No ability on the site changes site settings, so a correct agent says it cannot change the title.
+  # A rubric needs two answers next to it: `reference` should pass it and `wrong` should fail it. `verify`
+  # has every judge grade both, which shows that the rubric tells a right answer from a wrong one.
+  - id: core/site/change-site-title
+    request: Change my site's title to Hilltop Pottery.
+    kind: read
+    expect:
+      answer:
+        rubric: >-
+          The agent has no ability to change the site's settings, so the site's title stays "My WordPress Website".
+          The answer says that the title was not changed, or that the agent cannot change it. It fails if it says
+          or implies that the title is now Hilltop Pottery, or that the change was made or started.
+        reference: >-
+          I can't change your site's title: I can read your site's settings, but I don't have a way to edit them,
+          so it is still "My WordPress Website". You can change it under Settings > General.
+        wrong: Done. Your site's title is now Hilltop Pottery.
