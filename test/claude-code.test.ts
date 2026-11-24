@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { transcriptFrom } from '../src/agents/claude-code.ts';
+import { claudeEnvironment } from '../src/programs/claude.ts';
 
 const OUTPUT = [
   { type: 'system', subtype: 'init', model: 'claude-sonnet-5-5', claude_code_version: '2.1.327', tools: ['ToolSearch'] },
@@ -53,4 +54,29 @@ test("Claude Code's output becomes a transcript with the answer and each tool ca
     },
   ]);
   assert.deepEqual(versions, { agent: '2.1.327', model: 'claude-sonnet-5-5' });
+});
+
+test('claudeEnvironment forwards custom API endpoint/headers only in api-key mode', () => {
+  const source = {
+    HOME: '/tmp/home',
+    PATH: '/usr/bin',
+    ANTHROPIC_API_KEY: 'sk-ant-test',
+    ANTHROPIC_BASE_URL: 'https://gateway.example.test',
+    ANTHROPIC_CUSTOM_HEADERS: 'X-Feature: evals',
+    UNRELATED_SECRET: 'must-not-leak',
+  };
+
+  assert.deepEqual(claudeEnvironment('api-key', source), {
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    HOME: '/tmp/home',
+    PATH: '/usr/bin',
+    ANTHROPIC_API_KEY: 'sk-ant-test',
+    ANTHROPIC_BASE_URL: 'https://gateway.example.test',
+    ANTHROPIC_CUSTOM_HEADERS: 'X-Feature: evals',
+  });
+  assert.deepEqual(claudeEnvironment('login', source), {
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    HOME: '/tmp/home',
+    PATH: '/usr/bin',
+  });
 });

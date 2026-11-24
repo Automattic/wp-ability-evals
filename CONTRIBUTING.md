@@ -25,7 +25,8 @@ npm test
 
 - [CONTEXT.md](CONTEXT.md) defines the shared vocabulary used across code, comments, and CLI output.
 - [docs/architecture.md](docs/architecture.md) explains module boundaries and one-way import rules across `src/`.
-- [AGENTS.md](AGENTS.md) lists implementation conventions and manual checks for parts that need Docker, a signed-in agent, or a browser.
+- [AGENTS.md](AGENTS.md) lists implementation conventions and safety rules for package development.
+- [docs/manual-testing.md](docs/manual-testing.md) lists manual verification checklists for parts that need Docker, a signed-in agent, or a browser.
 - Projects should never need to edit this package to add an agent, entity type, site kind, or hook — prefer extending the contracts exported from `src/index.ts`.
 - Node runs TypeScript directly in `src/` during development: include `.ts` extensions in relative imports, use `import type` for type-only imports, and avoid non-erasable TypeScript syntax (`enum`, `namespace`, parameter properties).
 
@@ -33,7 +34,7 @@ npm test
 
 1. Keep changes focused and ensure `npm run typecheck` and `npm test` pass.
 2. If you change files in `template/`, `guide/`, or `skills/`, check whether `test/init.test.ts` or `test/update.test.ts` needs to be updated.
-3. For changes touching `wp-env`, server checks, hooks, agents, judges, or `viewer/`, verify manually against a real local project as noted in [AGENTS.md](AGENTS.md).
+3. For changes touching `wp-env`, server checks, hooks, agents, judges, or `viewer/`, verify manually against a real local project as noted in [docs/manual-testing.md](docs/manual-testing.md).
 
 ## License
 

@@ -340,9 +340,9 @@ function storiesOf(packs: Pack[], latest: Map<string, LatestResult>): StoryOverv
   });
 }
 
-/** The newest of `runs` that has server checks, the newest first. */
+/** The newest of `runs` that compared the server with the packs, falling back to the newest run with any server checks. */
 function lastChecked(runs: RunListing[]): RunListing | undefined {
-  return runs.find((run) => run.serverChecks !== undefined);
+  return runs.find((run) => run.serverChecks?.outcome === 'compared') ?? runs.find((run) => run.serverChecks !== undefined);
 }
 
 /** The abilities the newest server checks among `runs` found missing. None when none was compared. */

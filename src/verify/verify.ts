@@ -16,7 +16,7 @@ import { runHooks } from '../hooks/run.ts';
 import { startTrial } from '../hooks/start-trial.ts';
 import type { Hooks, TrialHookContext } from '../hooks/types.ts';
 import type { Judge, JudgeInput } from '../judge/types.ts';
-import { scenariosOn, siteOf } from '../project/site.ts';
+import { type Shard, scenariosOn, siteOf } from '../project/site.ts';
 import type { Project } from '../project/types.ts';
 import type { RunSetup, SiteReadings, TrialResult } from '../results/types.ts';
 import type { Scenario } from '../scenarios/types.ts';
@@ -32,6 +32,8 @@ export interface VerifyOptions {
   site: string;
   /** Proves only scenarios whose id contains this text. */
   filter?: string;
+  /** Proves only one 1-based slice of the selected scenarios, such as `{ index: 1, total: 4 }`. */
+  shard?: Shard;
   /** Whether the judges of the project's settings grade the answers next to a rubric. Grading spends each judge's plan or API credit. */
   judges: boolean;
   /** Called as each scenario's proof ends, to show progress. */
@@ -194,7 +196,7 @@ async function proofOf(scenario: Scenario, { site, hooks, run, markedStart, judg
  */
 export async function verify(options: VerifyOptions, project: Project): Promise<VerifyResult> {
   const site = siteOf(project, options.site);
-  const { scenarios } = scenariosOn(project, site, options.filter);
+  const { scenarios } = scenariosOn(project, site, options.filter, options.shard);
   const { hooks } = project.config;
   const judges = options.judges ? (project.config.judges ?? {}) : undefined;
   const run: RunSetup = { startedAt: new Date().toISOString(), site: options.site, agents: [], trialsPerScenario: 1 };

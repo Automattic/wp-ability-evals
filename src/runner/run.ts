@@ -8,7 +8,7 @@ import { AgentHasNoJudgeError, UnknownAgentError, messageOf } from '../errors.ts
 import { endRunOn, startRunOn } from '../hooks/run-on-site.ts';
 import { runHooks } from '../hooks/run.ts';
 import { judgeOf, sameFamilyNotices } from '../project/judges.ts';
-import { scenariosOn, siteOf } from '../project/site.ts';
+import { type Shard, scenariosOn, siteOf } from '../project/site.ts';
 import type { Project } from '../project/types.ts';
 import { ranOn } from '../results/models.ts';
 import type { AgentModels, RunResult, RunSetup, TrialResult } from '../results/types.ts';
@@ -26,6 +26,8 @@ export interface RunOptions {
   agents: string[];
   /** Runs only scenarios whose id contains this text. */
   filter?: string;
+  /** Runs only one 1-based slice of the selected scenarios, such as `{ index: 1, total: 4 }`. */
+  shard?: Shard;
   /** How many times each agent runs each scenario, instead of the number in the project's settings. */
   trials?: number;
   /** Called before the first trial with each thing the user should know about the run, as one line. */
@@ -49,7 +51,7 @@ export async function run(options: RunOptions, project: Project): Promise<RunRes
     return { name, agent, judge: judgeOf(agent, project.config) };
   });
   const site = siteOf(project, options.site);
-  const { packs, scenarios } = scenariosOn(project, site, options.filter);
+  const { packs, scenarios } = scenariosOn(project, site, options.filter, options.shard);
   // A rubric needs a judge. Asked before the site starts, so a run that can't be judged stops before it spends anything.
   const withRubric = scenarios.find((scenario) => scenario.expect.answer?.rubric !== undefined);
   const judgeless = agents.find(({ judge }) => judge === undefined);
