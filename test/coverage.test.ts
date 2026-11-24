@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { ToolCall } from '../src/agents/types.ts';
-import { trendOf } from '../src/coverage/coverage.ts';
+import { overviewOf, trendOf } from '../src/coverage/coverage.ts';
 import { readOverview } from '../src/coverage/read.ts';
 import type { Pack } from '../src/packs/types.ts';
 import type { DefinitionFinding, RunListing, RunResult, TrialResult } from '../src/results/types.ts';
@@ -284,4 +284,23 @@ test('a run with --filter leaves the trend at the other scenarios\' earlier resu
     { runId: first.id, startedAt: first.startedAt, onSite: 4, tested: 3, failing: 2, scenariosPassed: 1, scenariosFailed: 1, scenariosTotal: 3 },
     { runId: filtered.id, startedAt: filtered.startedAt, onSite: 2, tested: 3, failing: 2, scenariosPassed: 1, scenariosFailed: 1, scenariosTotal: 3 },
   ]);
+});
+
+test('a newer behind-lookup run preserves the latest compared server audit and definition findings', () => {
+  const compared: RunListing = {
+    ...listing('2026-11-18T09:00:00.000Z', { [RENAME.id]: 'pass' }),
+    serverChecks: { outcome: 'compared', onSite: ['core/get-site-info'], missing: ['core/publish-post'], inNoPack: [], definitionFindings: [TITLE_FINDING] },
+    hasServerSnapshot: true,
+  };
+  const behindLookup: RunListing = {
+    ...listing('2026-11-19T09:00:00.000Z', { [READ.id]: 'pass' }),
+    serverChecks: { outcome: 'behind-lookup', runTools: ['execute'] },
+  };
+
+  const overview = overviewOf({ packs: [PACK], runs: [behindLookup, compared], latest: new Map() });
+  assert.equal(overview.site?.runId, compared.id);
+  assert.equal(overview.site?.findings.outcome, 'compared');
+  assert.equal(overview.site?.hasServerSnapshot, true);
+  assert.deepEqual(overview.abilities.find((a) => a.ability === 'core/update-site-title')?.definitionFindings, [TITLE_FINDING]);
+  assert.equal(overview.trend[1]?.onSite, 1);
 });

@@ -2,7 +2,7 @@
 // The command line: `npx wp-ability-evals <command>`, run inside a project (or anywhere, for `init`).
 // It only reads the command and hands over; nothing that decides a result lives here.
 
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { unnamedNote } from '../coverage/coverage.ts';
 import { UsageError } from '../errors.ts';
@@ -12,8 +12,9 @@ import { updateNotice, updateProject } from '../init/update.ts';
 import { unlistedEntityTypeNotices } from '../project/cross-checks.ts';
 import { loadProject } from '../project/load.ts';
 import { sameFamilyNotices } from '../project/judges.ts';
-import { siteOf } from '../project/site.ts';
+import { parseShard, siteOf } from '../project/site.ts';
 import type { Project } from '../project/types.ts';
+import { mergeRuns } from '../results/merge.ts';
 import type { TrialResult } from '../results/types.ts';
 import { summarize } from '../results/write.ts';
 import { run } from '../runner/run.ts';
@@ -26,12 +27,13 @@ import { exportViewer } from '../viewer/export.ts';
 import { startViewer } from '../viewer/server.ts';
 
 const SITE_USAGE = 'wp-ability-evals site <start|check|state|reset|stop|remove> <name>';
-const VIEW_USAGE = 'wp-ability-evals view [--port <number>] [--export <folder>]';
+const VIEW_USAGE = 'wp-ability-evals view [--port <number>] [--export <folder>] [--results <folder>]';
 // A port few programs use, so the viewer's address stays the same from one day to the next.
 const VIEW_PORT = 4400;
-const RUN_USAGE = 'wp-ability-evals run --site <name> --agent <name> [--agent <name>] [--filter <text>] [--trials <number>]';
+const RUN_USAGE = 'wp-ability-evals run --site <name> --agent <name> [--agent <name>] [--filter <text>] [--shard <index>/<total>] [--trials <number>]';
+const MERGE_USAGE = 'wp-ability-evals merge --out <results-folder> <run-folder> [<run-folder>...]';
 const UPDATE_USAGE = 'wp-ability-evals update [--overwrite]';
-const VERIFY_USAGE = 'wp-ability-evals verify --site <name> [--filter <text>] [--no-judges]';
+const VERIFY_USAGE = 'wp-ability-evals verify --site <name> [--filter <text>] [--shard <index>/<total>] [--no-judges]';
 
 const USAGE = `Usage: wp-ability-evals <command> [options]
 
@@ -44,6 +46,7 @@ Commands:
                         names it and writes nothing, unless --overwrite says to replace those too
   run                   Run scenarios with one or more agents on a site, starting the site if needed.
                         This spends the agent's plan or API credit
+  merge                 Combine sharded run folders into one run folder inside an output results folder
   verify                Prove scenarios on a site without an agent, starting the site if needed: the
                         starting content, the site check and the answer. Grading the answers next to a
                         rubric spends each judge's plan or API credit, unless --no-judges leaves it out
@@ -72,18 +75,24 @@ Options for run:
   --site <name>     A file in the project's sites folder, without .json
   --agent <name>    An agent from evals.config.ts; repeat for several
   --filter <text>   Run only scenarios whose id contains the text
+  --shard <n>/<m>   Run only slice n of m (1-based round-robin), sequentially or in parallel
   --trials <number> How many times each agent runs each scenario, instead of the number in
                     evals.config.ts. A scenario passes only when every trial passes
+
+Options for merge:
+  --out <folder>    Destination results root where the combined run folder is created
 
 Options for verify:
   --site <name>     A file in the project's sites folder, without .json
   --filter <text>   Prove only scenarios whose id contains the text
+  --shard <n>/<m>   Prove only slice n of m (1-based round-robin)
   --no-judges       Leave out the grading of the answers next to a rubric, which is the one step that
                     calls a model
 
 Options for view:
   --port <number>   The port to serve the page on (default: ${VIEW_PORT})
   --export <folder> Write a static self-contained viewer (HTML/JS/CSS + JSON data) into the folder and exit
+  --results <dir>   Read saved runs from this folder instead of resultsDir in evals.config.ts
 `;
 
 function counted(count: number, noun: string, plural = `${noun}s`): string {
@@ -220,7 +229,7 @@ function trialLine(trial: TrialResult): string {
 }
 
 async function runScenarios(args: string[]): Promise<void> {
-  const options = { site: { type: 'string' }, agent: { type: 'string', multiple: true }, filter: { type: 'string' }, trials: { type: 'string' } } as const;
+  const options = { site: { type: 'string' }, agent: { type: 'string', multiple: true }, filter: { type: 'string' }, shard: { type: 'string' }, trials: { type: 'string' } } as const;
   let values;
   try {
     ({ values } = parseArgs({ args, options }));
@@ -228,6 +237,8 @@ async function runScenarios(args: string[]): Promise<void> {
     throw new UsageError(RUN_USAGE);
   }
   if (values.site === undefined || values.agent === undefined) throw new UsageError(RUN_USAGE);
+  const shard = values.shard === undefined ? undefined : parseShard(values.shard);
+  if (values.shard !== undefined && shard === undefined) throw new UsageError(RUN_USAGE);
   const trials = values.trials === undefined ? undefined : Number(values.trials);
   if (trials !== undefined && !(Number.isInteger(trials) && trials >= 1)) throw new UsageError(RUN_USAGE);
 
@@ -239,7 +250,7 @@ async function runScenarios(args: string[]): Promise<void> {
     console.log(`Each trial is saved in ${folder}/ as it ends, and run.json once the run has ended.`);
   };
   const result = await run(
-    { site: values.site, agents: values.agent, filter: values.filter, trials, onNotice: (notice) => console.log(notice), onFolder, onTrial: (trial) => console.log(trialLine(trial)) },
+    { site: values.site, agents: values.agent, filter: values.filter, shard, trials, onNotice: (notice) => console.log(notice), onFolder, onTrial: (trial) => console.log(trialLine(trial)) },
     project,
   );
   console.log(`\n${summarize(result).join('\n')}\nResults: ${join(folder, 'run.json')}`);
@@ -248,8 +259,23 @@ async function runScenarios(args: string[]): Promise<void> {
   if (result.verdicts.some((verdict) => verdict.outcome === 'fail' || verdict.outcome === 'error') || result.errors !== undefined) process.exitCode = 1;
 }
 
+async function merge(args: string[]): Promise<void> {
+  let values;
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parseArgs({ args, options: { out: { type: 'string' } }, allowPositionals: true }));
+  } catch {
+    throw new UsageError(MERGE_USAGE);
+  }
+  if (values.out === undefined || values.out.trim() === '' || positionals.length === 0) throw new UsageError(MERGE_USAGE);
+  const merged = await mergeRuns({ sources: positionals, resultsDir: values.out });
+  console.log(
+    `Merged ${counted(positionals.length, 'run')} (${counted(merged.runFile.verdicts.length, 'scenario')}, ${counted(merged.runFile.trials.length, 'trial')}) into ${merged.dir}`,
+  );
+}
+
 async function verifyScenarios(args: string[]): Promise<void> {
-  const options = { site: { type: 'string' }, filter: { type: 'string' }, 'no-judges': { type: 'boolean' } } as const;
+  const options = { site: { type: 'string' }, filter: { type: 'string' }, shard: { type: 'string' }, 'no-judges': { type: 'boolean' } } as const;
   let values;
   try {
     ({ values } = parseArgs({ args, options }));
@@ -257,10 +283,12 @@ async function verifyScenarios(args: string[]): Promise<void> {
     throw new UsageError(VERIFY_USAGE);
   }
   if (values.site === undefined) throw new UsageError(VERIFY_USAGE);
+  const shard = values.shard === undefined ? undefined : parseShard(values.shard);
+  if (values.shard !== undefined && shard === undefined) throw new UsageError(VERIFY_USAGE);
 
   const project = await loadProject(process.cwd());
   const result = await verify(
-    { site: values.site, filter: values.filter, judges: values['no-judges'] !== true, onProof: (proof) => console.log(proofLines(proof).join('\n')) },
+    { site: values.site, filter: values.filter, shard, judges: values['no-judges'] !== true, onProof: (proof) => console.log(proofLines(proof).join('\n')) },
     project,
   );
   console.log(summaryLines(result).join('\n'));
@@ -271,14 +299,16 @@ async function verifyScenarios(args: string[]): Promise<void> {
 async function view(args: string[]): Promise<void> {
   let values;
   try {
-    ({ values } = parseArgs({ args, options: { port: { type: 'string' }, export: { type: 'string' } } }));
+    ({ values } = parseArgs({ args, options: { port: { type: 'string' }, export: { type: 'string' }, results: { type: 'string' } } }));
   } catch {
     throw new UsageError(VIEW_USAGE);
   }
+  if (values.results !== undefined && values.results.trim() === '') throw new UsageError(VIEW_USAGE);
   if (values.export !== undefined) {
     if (values.port !== undefined || values.export.trim() === '') throw new UsageError(VIEW_USAGE);
     const { config, packs } = await loadProject(process.cwd());
-    const { outDir, runs } = await exportViewer({ resultsDir: config.resultsDir, packs, outDir: values.export });
+    const resultsDir = values.results === undefined ? config.resultsDir : resolve(values.results);
+    const { outDir, runs } = await exportViewer({ resultsDir, packs, outDir: values.export });
     console.log(`Exported static viewer (${counted(runs, 'run')}) to ${outDir}`);
     return;
   }
@@ -286,7 +316,8 @@ async function view(args: string[]): Promise<void> {
   if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new UsageError(VIEW_USAGE);
 
   const { config, dir } = await loadProject(process.cwd());
-  const { url } = await startViewer({ resultsDir: config.resultsDir, packs: async () => (await loadProject(dir)).packs, port });
+  const resultsDir = values.results === undefined ? config.resultsDir : resolve(values.results);
+  const { url } = await startViewer({ resultsDir, packs: async () => (await loadProject(dir)).packs, port });
   console.log(`The coverage of the abilities and the saved runs are at ${url}\nStop with Ctrl+C.`);
 }
 
@@ -302,6 +333,7 @@ async function main(args: string[]): Promise<void> {
   if (command === 'validate') return validate();
   if (command === 'site') return site(args[1], args[2]);
   if (command === 'run') return runScenarios(args.slice(1));
+  if (command === 'merge') return merge(args.slice(1));
   if (command === 'verify') return verifyScenarios(args.slice(1));
   if (command === 'view') return view(args.slice(1));
   console.error(`Unknown command: ${command}\n\n${USAGE}`);

@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { transcriptFrom } from '../src/agents/codex.ts';
+import { codexEnvironment, codexOptions } from '../src/programs/codex.ts';
 
 const NOT_FOUND = "Ability 'core/does-not-exist' not found on this WordPress site, and no ability you can call has a similar name.";
 
@@ -114,4 +115,19 @@ test("Codex's output becomes a transcript with its last message as the answer, e
     },
   ]);
   assert.deepEqual(versions, { agent: '0.165.0', model: 'gpt-5.6-sol' });
+});
+
+test('codex maps OPENAI_API_KEY and OPENAI_BASE_URL only in api-key mode', () => {
+  const source = { PATH: '/usr/bin', OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: 'https://gateway.example.test/v1' };
+
+  assert.deepEqual(codexEnvironment('api-key', '/tmp/user', source), {
+    HOME: '/tmp/user',
+    PATH: '/usr/bin',
+    CODEX_API_KEY: 'sk-test',
+  });
+  const apiArgs = codexOptions('gpt-6.2-sol', [], 'api-key', source);
+  assert.equal(apiArgs.includes('openai_base_url="https://gateway.example.test/v1"'), true);
+
+  const loginArgs = codexOptions('gpt-6.2-sol', [], 'login', source);
+  assert.equal(loginArgs.some((arg) => arg.startsWith('openai_base_url=')), false);
 });

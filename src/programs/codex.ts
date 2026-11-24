@@ -18,6 +18,7 @@ const PROGRAM = 'codex';
 export const CODEX_FAMILY = 'gpt';
 /** The variable a user sets, and the one `codex exec` reads a key from. */
 const API_KEY = 'OPENAI_API_KEY';
+const API_BASE_URL = 'OPENAI_BASE_URL';
 const CODEX_API_KEY = 'CODEX_API_KEY';
 /** Codex's home for the evals: one per machine, shared by every project. It holds a sign-in and nothing of the user's. */
 const CODEX_HOME = join(homedir(), '.wp-ability-evals', 'codex');
@@ -62,19 +63,22 @@ export interface CodexRun {
   options?: string[];
 }
 
-function environment(signIn: SignIn, userHome: string): NodeJS.ProcessEnv {
+export function codexEnvironment(signIn: SignIn, userHome: string, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { HOME: userHome };
   for (const name of KEPT_VARIABLES) {
-    if (process.env[name] !== undefined) env[name] = process.env[name];
+    if (source[name] !== undefined) env[name] = source[name];
   }
   if (signIn === 'login') return { ...env, CODEX_HOME };
   // With a key, Codex needs nothing from the machine: it makes a new home in the empty user folder.
-  const key = process.env[API_KEY];
+  const key = source[API_KEY];
   if (!key) throw new AgentNotReadyError(`Codex is set to sign in with an API key, but ${API_KEY} is not set.`);
   return { ...env, [CODEX_API_KEY]: key };
 }
 
-function options(model: string, settings: string[]): string[] {
+export function codexOptions(model: string, settings: string[], signIn: SignIn, source: NodeJS.ProcessEnv = process.env): string[] {
+  // Modern Codex CLI ignores OPENAI_BASE_URL from the environment and reads `--config openai_base_url=...` instead.
+  const baseUrl = signIn === 'api-key' ? source[API_BASE_URL]?.trim() : undefined;
+  const apiSettings = baseUrl ? [`openai_base_url=${JSON.stringify(baseUrl)}`] : [];
   return [
     'exec',
     '--json',
@@ -87,7 +91,7 @@ function options(model: string, settings: string[]): string[] {
     // Codex's file-editing tool can't be switched off. Nothing may be written, so it is refused.
     ...['--sandbox', 'read-only'],
     ...SWITCHED_OFF.flatMap((feature) => ['--disable', feature]),
-    ...[...SETTINGS, ...settings].flatMap((setting) => ['--config', setting]),
+    ...[...SETTINGS, ...apiSettings, ...settings].flatMap((setting) => ['--config', setting]),
   ];
 }
 
@@ -127,7 +131,7 @@ export async function runCodex({ model, signIn, request, cwd, timeoutMs, env: mo
   const outputFile = join(folder, 'output.jsonl');
   try {
     await mkdir(userHome);
-    const env = { ...environment(signIn, userHome), ...more };
+    const env = { ...codexEnvironment(signIn, userHome), ...more };
     // "codex-cli 0.165.0"
     const version = (await run(PROGRAM, ['--version'], { env, timeoutMs: STATUS_TIMEOUT_MS })).split(' ').at(-1) ?? 'unknown';
     if (signIn === 'login') {
@@ -138,7 +142,7 @@ export async function runCodex({ model, signIn, request, cwd, timeoutMs, env: mo
       });
     }
     const output = (): Promise<string> => readFile(outputFile, 'utf8');
-    await run(PROGRAM, [...options(model, settings), ...moreOptions], { cwd, env, input: request, outputFile, timeoutMs }).catch(async (error: unknown) => {
+    await run(PROGRAM, [...codexOptions(model, settings, signIn), ...moreOptions], { cwd, env, input: request, outputFile, timeoutMs }).catch(async (error: unknown) => {
       // When Codex gives up it says why in its output, which is clearer than the log on its error stream.
       throw failureIn(eventsIn(await output())) ?? error;
     });

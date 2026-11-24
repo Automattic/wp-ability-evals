@@ -30,13 +30,36 @@ export function siteOf(project: Project, name: string): Site {
   });
 }
 
+/** One 1-based slice of a project's selected scenarios, for running a suite in shards sequentially or in parallel. */
+export interface Shard {
+  index: number;
+  total: number;
+}
+
+/** Parses `<index>/<total>` (1-based, `1 <= index <= total`), or returns undefined when malformed. */
+export function parseShard(value: string): Shard | undefined {
+  const match = /^(\d+)\/(\d+)$/.exec(value.trim());
+  if (match === null) return undefined;
+  const index = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isInteger(index) || !Number.isInteger(total) || total < 1 || index < 1 || index > total) return undefined;
+  return { index, total };
+}
+
+/** Deterministic round-robin slice so slower packs spread evenly across shards instead of bunching in shard 1. */
+export function shardScenarios(scenarios: Scenario[], shard: Shard | undefined): Scenario[] {
+  if (shard === undefined) return scenarios;
+  return scenarios.filter((_, index) => index % shard.total === shard.index - 1);
+}
+
 /**
- * The packs a site names, and those of their scenarios whose id contains `filter`: what `run` and `verify`
- * work through on the site. Throws `NothingToRunError` when no scenario is left.
+ * The packs a site names, and those of their scenarios whose id contains `filter` (and belong to `shard` when set):
+ * what `run` and `verify` work through on the site. Throws `NothingToRunError` when no scenario is left.
  */
-export function scenariosOn(project: Project, site: Site, filter: string | undefined): { packs: Pack[]; scenarios: Scenario[] } {
+export function scenariosOn(project: Project, site: Site, filter: string | undefined, shard?: Shard): { packs: Pack[]; scenarios: Scenario[] } {
   const packs = project.packs.filter((pack) => site.packs.includes(pack.name));
-  const scenarios = packs.flatMap((pack) => pack.scenarios).filter((scenario) => scenario.id.includes(filter ?? ''));
-  if (scenarios.length === 0) throw new NothingToRunError(site.name, filter);
+  const filtered = packs.flatMap((pack) => pack.scenarios).filter((scenario) => scenario.id.includes(filter ?? ''));
+  const scenarios = shardScenarios(filtered, shard);
+  if (scenarios.length === 0) throw new NothingToRunError(site.name, filter, shard);
   return { packs, scenarios };
 }

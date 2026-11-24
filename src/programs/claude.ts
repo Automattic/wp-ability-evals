@@ -8,21 +8,27 @@ export const CLAUDE = 'claude';
 /** The model family Claude Code runs. */
 export const CLAUDE_FAMILY = 'claude';
 const API_KEY = 'ANTHROPIC_API_KEY';
+// Optional endpoint/header overrides honored by Claude Code when authenticating with an API key.
+const API_KEY_VARIABLES = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS'];
 // All that Claude Code needs from this machine: where the sign-in is kept and where programs are. Nothing
 // else is passed on, because the evals are often started from inside another agent's session, whose
 // variables would change how this one behaves.
 const KEPT_VARIABLES = ['HOME', 'USER', 'LOGNAME', 'PATH', 'TMPDIR'];
 
-export function claudeEnvironment(signIn: SignIn): NodeJS.ProcessEnv {
+export function claudeEnvironment(signIn: SignIn, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   // Memory would carry what one run learned into the next, and leave a folder per run in the user's home.
   const env: NodeJS.ProcessEnv = { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
   for (const name of KEPT_VARIABLES) {
-    if (process.env[name] !== undefined) env[name] = process.env[name];
+    if (source[name] !== undefined) env[name] = source[name];
   }
   if (signIn === 'api-key') {
-    const key = process.env[API_KEY];
+    const key = source[API_KEY];
     if (!key) throw new AgentNotReadyError(`Claude Code is set to sign in with an API key, but ${API_KEY} is not set.`);
     env[API_KEY] = key;
+    for (const name of API_KEY_VARIABLES) {
+      const value = source[name]?.trim();
+      if (value) env[name] = value;
+    }
   }
   return env;
 }
