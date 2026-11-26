@@ -122,8 +122,14 @@ export class UnknownAgentError extends Error {
 
 /** No scenario matched what a run asked for. */
 export class NothingToRunError extends Error {
-  constructor(site: string, filter: string | undefined, shard?: { index: number; total: number }) {
-    const matching = filter ? ` with an id that contains "${filter}"` : '';
+  constructor(site: string, filter: string | readonly string[] | undefined, shard?: { index: number; total: number }) {
+    const filters = (typeof filter === 'string' ? [filter] : (filter ?? [])).filter((text) => text !== '');
+    const matching =
+      filters.length === 0
+        ? ''
+        : filters.length === 1
+          ? ` with an id that contains "${filters[0]}"`
+          : ` matching any filter (${filters.map((text) => `"${text}"`).join(', ')})`;
     const slice = shard ? ` in shard ${shard.index}/${shard.total}` : '';
     super(`No scenario to run on site ${site}${matching}${slice}. \`wp-ability-evals list\` shows the scenarios; a site runs those of the packs it names.`);
     this.name = 'NothingToRunError';

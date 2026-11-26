@@ -6,12 +6,15 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { parseShard, shardScenarios } from '../src/project/site.ts';
+import { NothingToRunError } from '../src/errors.ts';
+import { parseShard, scenariosOn, shardScenarios } from '../src/project/site.ts';
+import type { Project } from '../src/project/types.ts';
 import { mergeRuns } from '../src/results/merge.ts';
 import { listRuns } from '../src/results/read.ts';
 import type { RunResult, TrialResult } from '../src/results/types.ts';
 import { runFolder, writeRunFile, writeServerSnapshot, writeTrial } from '../src/results/write.ts';
 import type { Scenario } from '../src/scenarios/types.ts';
+import type { Site } from '../src/sites/types.ts';
 
 const S1: Scenario = { id: 'posts/a/one', request: 'One', kind: 'read', expect: {} };
 const S2: Scenario = { id: 'posts/a/two', request: 'Two', kind: 'write', expect: {} };
@@ -29,6 +32,44 @@ test('parseShard validates 1-based bounds and shardScenarios partitions round-ro
   const shard2 = shardScenarios(all, { index: 2, total: 2 });
   assert.deepEqual(shard1.map((s) => s.id), [S1.id, S3.id]);
   assert.deepEqual(shard2.map((s) => s.id), [S2.id, S4.id]);
+});
+
+test('scenariosOn OR-matches repeatable filters without duplicates before sharding and reports all filters on empty match', () => {
+  const project = {
+    dir: '/tmp',
+    packs: [
+      { name: 'posts', title: 'Posts', dir: '/tmp/posts', abilities: { reads: [], writes: [] }, entities: [], stories: [], scenarios: [S1, S2] },
+      { name: 'pages', title: 'Pages', dir: '/tmp/pages', abilities: { reads: [], writes: [] }, entities: [], stories: [], scenarios: [S3] },
+      { name: 'terms', title: 'Terms', dir: '/tmp/terms', abilities: { reads: [], writes: [] }, entities: [], stories: [], scenarios: [S4] },
+    ],
+    sites: {},
+    config: {} as Project['config'],
+  } as Project;
+  const site = { name: 'staging', packs: ['posts', 'pages', 'terms'] } as Site;
+
+  // Overlapping filters (`posts/` and `posts/a/one`) must match once in pack order alongside `terms/a/four`.
+  const matched = scenariosOn(project, site, ['posts/', 'posts/a/one', 'terms/a/four']);
+  assert.deepEqual(
+    matched.scenarios.map((s) => s.id),
+    [S1.id, S2.id, S4.id],
+  );
+
+  // Sharding applies round-robin to the filtered union.
+  const slice1 = scenariosOn(project, site, ['posts/a/one', 'pages/a/three', 'terms/a/four'], { index: 1, total: 2 });
+  const slice2 = scenariosOn(project, site, ['posts/a/one', 'pages/a/three', 'terms/a/four'], { index: 2, total: 2 });
+  assert.deepEqual(
+    slice1.scenarios.map((s) => s.id),
+    [S1.id, S4.id],
+  );
+  assert.deepEqual(
+    slice2.scenarios.map((s) => s.id),
+    [S3.id],
+  );
+
+  assert.throws(
+    () => scenariosOn(project, site, ['missing/a', 'missing/b']),
+    (error: unknown) => error instanceof NothingToRunError && error.message.includes('"missing/a", "missing/b"'),
+  );
 });
 
 async function writeShard(root: string, run: RunResult, snapshot?: { inspectorVersion: string; tools: { name: string }[] }): Promise<string> {

@@ -30,8 +30,8 @@ const NO_AGENT = 'verify';
 export interface VerifyOptions {
   /** The name of a file in the project's sites folder. */
   site: string;
-  /** Proves only scenarios whose id contains this text. */
-  filter?: string;
+  /** Proves only scenarios whose id contains this text (or any entry when given an array). */
+  filter?: string | readonly string[];
   /** Proves only one 1-based slice of the selected scenarios, such as `{ index: 1, total: 4 }`. */
   shard?: Shard;
   /** Whether the judges of the project's settings grade the answers next to a rubric. Grading spends each judge's plan or API credit. */

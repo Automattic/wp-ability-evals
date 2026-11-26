@@ -53,13 +53,15 @@ export function shardScenarios(scenarios: Scenario[], shard: Shard | undefined):
 }
 
 /**
- * The packs a site names, and those of their scenarios whose id contains `filter` (and belong to `shard` when set):
- * what `run` and `verify` work through on the site. Throws `NothingToRunError` when no scenario is left.
+ * The packs a site names, and those of their scenarios whose id contains any non-empty `filter` (and belong to
+ * `shard` when set): what `run` and `verify` work through on the site. Throws `NothingToRunError` when no scenario is left.
  */
-export function scenariosOn(project: Project, site: Site, filter: string | undefined, shard?: Shard): { packs: Pack[]; scenarios: Scenario[] } {
+export function scenariosOn(project: Project, site: Site, filter: string | readonly string[] | undefined, shard?: Shard): { packs: Pack[]; scenarios: Scenario[] } {
   const packs = project.packs.filter((pack) => site.packs.includes(pack.name));
-  const filtered = packs.flatMap((pack) => pack.scenarios).filter((scenario) => scenario.id.includes(filter ?? ''));
+  const filters = (typeof filter === 'string' ? [filter] : (filter ?? [])).filter((text) => text !== '');
+  const all = packs.flatMap((pack) => pack.scenarios);
+  const filtered = filters.length === 0 ? all : all.filter((scenario) => filters.some((text) => scenario.id.includes(text)));
   const scenarios = shardScenarios(filtered, shard);
-  if (scenarios.length === 0) throw new NothingToRunError(site.name, filter, shard);
+  if (scenarios.length === 0) throw new NothingToRunError(site.name, filters, shard);
   return { packs, scenarios };
 }
