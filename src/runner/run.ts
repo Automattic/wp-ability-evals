@@ -24,8 +24,8 @@ export interface RunOptions {
   site: string;
   /** Names from the config's agents. */
   agents: string[];
-  /** Runs only scenarios whose id contains this text. */
-  filter?: string;
+  /** Runs only scenarios whose id contains this text (or any entry when given an array). */
+  filter?: string | readonly string[];
   /** Runs only one 1-based slice of the selected scenarios, such as `{ index: 1, total: 4 }`. */
   shard?: Shard;
   /** How many times each agent runs each scenario, instead of the number in the project's settings. */

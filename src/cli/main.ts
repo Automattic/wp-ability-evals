@@ -74,7 +74,7 @@ Options for update:
 Options for run:
   --site <name>     A file in the project's sites folder, without .json
   --agent <name>    An agent from evals.config.ts; repeat for several
-  --filter <text>   Run only scenarios whose id contains the text
+  --filter <text>   Run only scenarios whose id contains the text; repeat for several
   --shard <n>/<m>   Run only slice n of m (1-based round-robin), sequentially or in parallel
   --trials <number> How many times each agent runs each scenario, instead of the number in
                     evals.config.ts. A scenario passes only when every trial passes
@@ -84,7 +84,7 @@ Options for merge:
 
 Options for verify:
   --site <name>     A file in the project's sites folder, without .json
-  --filter <text>   Prove only scenarios whose id contains the text
+  --filter <text>   Prove only scenarios whose id contains the text; repeat for several
   --shard <n>/<m>   Prove only slice n of m (1-based round-robin)
   --no-judges       Leave out the grading of the answers next to a rubric, which is the one step that
                     calls a model
@@ -229,7 +229,7 @@ function trialLine(trial: TrialResult): string {
 }
 
 async function runScenarios(args: string[]): Promise<void> {
-  const options = { site: { type: 'string' }, agent: { type: 'string', multiple: true }, filter: { type: 'string' }, shard: { type: 'string' }, trials: { type: 'string' } } as const;
+  const options = { site: { type: 'string' }, agent: { type: 'string', multiple: true }, filter: { type: 'string', multiple: true }, shard: { type: 'string' }, trials: { type: 'string' } } as const;
   let values;
   try {
     ({ values } = parseArgs({ args, options }));
@@ -275,7 +275,7 @@ async function merge(args: string[]): Promise<void> {
 }
 
 async function verifyScenarios(args: string[]): Promise<void> {
-  const options = { site: { type: 'string' }, filter: { type: 'string' }, shard: { type: 'string' }, 'no-judges': { type: 'boolean' } } as const;
+  const options = { site: { type: 'string' }, filter: { type: 'string', multiple: true }, shard: { type: 'string' }, 'no-judges': { type: 'boolean' } } as const;
   let values;
   try {
     ({ values } = parseArgs({ args, options }));

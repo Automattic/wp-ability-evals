@@ -129,7 +129,7 @@ Token cost and wall-clock time scale linearly with `trials`. Adjust `trials` in 
 
 ## Splitting runs with `--shard` and `merge`
 
-Large `run` or `verify` invocations can be partitioned with `--shard <index>/<total>` (1-based). Selected scenarios (after `--filter`, if any) are assigned round-robin (`index % total`) so slower packs spread evenly across slices:
+Large `run` or `verify` invocations can be partitioned with `--shard <index>/<total>` (1-based). Selected scenarios (after `--filter`, which may be repeated to match any of several scenario IDs or prefixes) are assigned round-robin (`index % total`) so slower packs spread evenly across slices:
 
 ```bash
 npx wp-ability-evals run --site local --agent claude-code --shard 1/4
