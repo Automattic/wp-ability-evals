@@ -304,3 +304,28 @@ test('a newer behind-lookup run preserves the latest compared server audit and d
   assert.deepEqual(overview.abilities.find((a) => a.ability === 'core/update-site-title')?.definitionFindings, [TITLE_FINDING]);
   assert.equal(overview.trend[1]?.onSite, 1);
 });
+
+test('a newer behind-lookup run with contract findings is not masked by an older compared audit', () => {
+  const compared: RunListing = {
+    ...listing('2026-11-18T09:00:00.000Z', { [RENAME.id]: 'pass' }),
+    serverChecks: { outcome: 'compared', onSite: ['core/get-site-info', 'core/update-site-title'], missing: [], inNoPack: [] },
+    hasServerSnapshot: true,
+  };
+  const directToolFinding: DefinitionFinding = {
+    ability: 'core/update-site-title',
+    severity: 'error',
+    rule: 'not-direct-tool',
+    path: 'tools',
+    issue: 'Not exposed directly.',
+    suggestion: 'Expose directly.',
+  };
+  const behindLookupFailure: RunListing = {
+    ...listing('2026-11-19T09:00:00.000Z', { [READ.id]: 'pass' }),
+    serverChecks: { outcome: 'behind-lookup', runTools: ['execute'], definitionFindings: [directToolFinding] },
+  };
+
+  const overview = overviewOf({ packs: [PACK], runs: [behindLookupFailure, compared], latest: new Map() });
+  assert.equal(overview.site?.runId, behindLookupFailure.id);
+  assert.equal(overview.site?.findings.outcome, 'behind-lookup');
+  assert.deepEqual(overview.abilities.find((a) => a.ability === 'core/update-site-title')?.definitionFindings, [directToolFinding]);
+});

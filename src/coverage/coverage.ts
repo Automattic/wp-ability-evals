@@ -340,9 +340,19 @@ function storiesOf(packs: Pack[], latest: Map<string, LatestResult>): StoryOverv
   });
 }
 
-/** The newest of `runs` that compared the server with the packs, falling back to the newest run with any server checks. */
+/**
+ * The newest of `runs` that either compared the server with the packs or recorded lookup-mode contract findings,
+ * falling back to the newest run with any server checks. Clean `behind-lookup` runs still preserve an older
+ * `compared` audit, while a newer lookup regression with `definitionFindings` is never masked by an older run.
+ */
 function lastChecked(runs: RunListing[]): RunListing | undefined {
-  return runs.find((run) => run.serverChecks?.outcome === 'compared') ?? runs.find((run) => run.serverChecks !== undefined);
+  return (
+    runs.find(
+      (run) =>
+        run.serverChecks?.outcome === 'compared' ||
+        (run.serverChecks?.outcome === 'behind-lookup' && (run.serverChecks.definitionFindings?.length ?? 0) > 0),
+    ) ?? runs.find((run) => run.serverChecks !== undefined)
+  );
 }
 
 /** The abilities the newest server checks among `runs` found missing. None when none was compared. */
