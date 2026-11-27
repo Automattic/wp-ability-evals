@@ -9,11 +9,12 @@ import type { TrialResult, VerdictOutcome } from '../src/results/types.ts';
 import { trialLeftOut } from '../src/runner/run.ts';
 import { verdictFor } from '../src/runner/verdict.ts';
 import type { Scenario } from '../src/scenarios/types.ts';
-import { hasProblem } from '../src/server-checks/check.ts';
+import { findingLines, hasProblem } from '../src/server-checks/check.ts';
 import { compareWithPacks } from '../src/server-checks/compare.ts';
 import { parseToolsOutput } from '../src/server-checks/inspector.ts';
 import { scenariosLeftOut } from '../src/server-checks/left-out.ts';
-import type { DefinitionFinding, ListedServer, ListedTool, ServerFindings } from '../src/server-checks/types.ts';
+import type { DefinitionFinding, ListedServer, ListedTool, ServerFindings, ToolAnnotations } from '../src/server-checks/types.ts';
+import { resolveServerChecks } from '../src/server-checks/validate.ts';
 
 const PACK = { abilities: { reads: ['core/get-site-info'], writes: ['core/update-site-title'] } };
 const LOOKUP: LookupTools = {
@@ -21,8 +22,9 @@ const LOOKUP: LookupTools = {
   otherTools: ['mcp-adapter-discover-abilities', 'mcp-adapter-get-ability-info'],
 };
 
-function tool(name: string, description = 'Describes what the ability does.', readOnlyHint?: boolean): ListedTool {
-  return { name, description, ...(readOnlyHint === undefined ? {} : { annotations: { readOnlyHint } }) };
+function tool(name: string, description = 'Describes what the ability does.', annotations?: boolean | ToolAnnotations): ListedTool {
+  if (annotations === undefined) return { name, description };
+  return { name, description, annotations: typeof annotations === 'boolean' ? { readOnlyHint: annotations } : annotations };
 }
 
 const CASES: { name: string; server: ListedServer; findings: ServerFindings }[] = [
@@ -121,6 +123,210 @@ test('server checks: a hybrid server compares direct tools and their definitions
       { ability: 'core/get-site-info', severity: 'warning', rule: 'type-union', path: 'outputSchema.properties.name', issue: 'Array type.', suggestion: 'Use anyOf.' },
     ],
   });
+});
+
+test('server checks: opt-in hint rules distinguish explicit false from omitted, catch conflicts, and do not duplicate readOnlyHint errors', () => {
+  const server: ListedServer = {
+    tools: [
+      tool('core-get-site-info', 'Reads site info.', { readOnlyHint: true, destructiveHint: false, idempotentHint: true }),
+      tool('core-update-site-title', 'Updates the site title.', { readOnlyHint: true, idempotentHint: true }),
+    ],
+    schemaFindings: [],
+  };
+
+  const findings = compareWithPacks([PACK], server, LOOKUP, {
+    requiredHints: ['readOnlyHint', 'destructiveHint'],
+    hints: {
+      'core/get-site-info': { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      'core/update-site-title': { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+  });
+
+  assert.deepEqual(findings, {
+    outcome: 'compared',
+    onSite: ['core/get-site-info', 'core/update-site-title'],
+    missing: [],
+    inNoPack: [],
+    definitionFindings: [
+      {
+        ability: 'core/update-site-title',
+        severity: 'error',
+        rule: 'read-only-mismatch',
+        path: 'annotations.readOnlyHint',
+        issue: 'The tool advertises `readOnlyHint: true`, but its pack lists it under `writes`.',
+        suggestion: "Set `readonly` to `false` in the ability's annotations, or move the ability to `reads` in `pack.yaml` if it does not change the site.",
+      },
+      {
+        ability: 'core/update-site-title',
+        severity: 'error',
+        rule: 'missing-hint',
+        path: 'annotations.destructiveHint',
+        issue: 'The tool `core-update-site-title` omits `annotations.destructiveHint`, expected `false` explicitly.',
+        suggestion: 'Advertise `annotations.destructiveHint: false` explicitly on the tool (an omitted hint is not treated as `false`), or update `serverChecks.hints` if this value is not expected.',
+      },
+      {
+        ability: 'core/update-site-title',
+        severity: 'error',
+        rule: 'hint-mismatch',
+        path: 'annotations.idempotentHint',
+        issue: 'The tool `core-update-site-title` advertises `annotations.idempotentHint: true`, expected `false`.',
+        suggestion: "Update the tool's `annotations.idempotentHint` to `false`, or change `serverChecks.hints` if `true` is intentional.",
+      },
+    ],
+  });
+  assert.equal(hasProblem(findings, SCENARIOS), true);
+});
+
+test('server checks: requiredHints alone passes explicit false and flags omitted hints on listed tools', () => {
+  const server: ListedServer = {
+    tools: [
+      tool('core-get-site-info', 'Reads site info.', { readOnlyHint: true, destructiveHint: false }),
+      tool('core-update-site-title', 'Updates the site title.', {}),
+    ],
+    schemaFindings: [],
+  };
+
+  const findings = compareWithPacks([PACK], server, LOOKUP, { requiredHints: ['readOnlyHint', 'destructiveHint'] });
+
+  assert.equal(findings.outcome, 'compared');
+  assert.deepEqual(
+    (findings.definitionFindings ?? []).map(({ ability, rule, path, severity }) => ({ ability, rule, path, severity })),
+    [
+      { ability: 'core/update-site-title', rule: 'missing-hint', path: 'annotations.readOnlyHint', severity: 'error' },
+      { ability: 'core/update-site-title', rule: 'missing-hint', path: 'annotations.destructiveHint', severity: 'error' },
+    ],
+  );
+});
+
+test('server checks: directTools fails site check when an operation is only behind lookup without skipping lookup scenarios in a run', () => {
+  const lookupOnly: ListedServer = {
+    tools: [tool('mcp-adapter-discover-abilities'), tool('mcp-adapter-get-ability-info'), tool('mcp-adapter-execute-ability')],
+    schemaFindings: [],
+  };
+
+  // Disabled (false): unchanged pure-lookup behavior.
+  assert.deepEqual(compareWithPacks([PACK], lookupOnly, LOOKUP, { directTools: false }), {
+    outcome: 'behind-lookup',
+    runTools: ['mcp-adapter-execute-ability'],
+  });
+
+  // Enabled for selected ability: reports not-direct-tool error, fails site check, does not skip scenarios.
+  const lookupFindings = compareWithPacks([PACK], lookupOnly, LOOKUP, { directTools: ['core/get-site-info'] });
+  assert.deepEqual(lookupFindings, {
+    outcome: 'behind-lookup',
+    runTools: ['mcp-adapter-execute-ability'],
+    definitionFindings: [
+      {
+        ability: 'core/get-site-info',
+        severity: 'error',
+        rule: 'not-direct-tool',
+        path: 'tools',
+        issue: 'The ability `core/get-site-info` is not exposed as a direct tool (`core-get-site-info`) in `tools/list`; it is only reachable through `mcp-adapter-execute-ability`.',
+        suggestion: 'Expose `core/get-site-info` as an individually callable MCP tool (`core-get-site-info`) on the server, or remove it from `serverChecks.directTools`.',
+      },
+    ],
+  });
+  assert.equal(hasProblem(lookupFindings, SCENARIOS), true);
+  assert.equal(scenariosLeftOut(SCENARIOS, lookupFindings).size, 0);
+  assert.ok(findingLines(lookupFindings, SCENARIOS).some((line) => line.includes('core/get-site-info') && line.includes('mcp-adapter-execute-ability')));
+
+  // Hybrid server: direct tool passes, prefixed lookup ability fails directTools without landing in missing.
+  const hybridPack = { abilities: { reads: ['core/get-site-info', 'remote:plugin/read-status'], writes: [] } };
+  const hybridLookup: LookupTools = {
+    runTools: [{ tool: 'execute_remote_ability', nameArgument: 'name', inputArgument: 'input', prefix: 'remote:' }],
+    otherTools: ['search_remote_abilities'],
+  };
+  const hybridServer: ListedServer = {
+    tools: [
+      tool('core-get-site-info', 'Reads site info.', { readOnlyHint: true }),
+      tool('search_remote_abilities', 'Searches remote abilities.', { readOnlyHint: true }),
+      tool('execute_remote_ability', 'Runs remote abilities.', { readOnlyHint: false }),
+    ],
+    schemaFindings: [],
+  };
+
+  const hybridFindings = compareWithPacks([hybridPack], hybridServer, hybridLookup, { directTools: true });
+  assert.deepEqual(hybridFindings, {
+    outcome: 'compared',
+    onSite: ['core/get-site-info'],
+    missing: [],
+    inNoPack: [],
+    definitionFindings: [
+      {
+        ability: 'remote:plugin/read-status',
+        severity: 'error',
+        rule: 'not-direct-tool',
+        path: 'tools',
+        issue: 'The ability `remote:plugin/read-status` is not exposed as a direct tool (`remote:plugin-read-status`) in `tools/list`; it is only reachable through `execute_remote_ability`.',
+        suggestion: 'Expose `remote:plugin/read-status` as an individually callable MCP tool (`remote:plugin-read-status`) on the server, or remove it from `serverChecks.directTools`.',
+      },
+    ],
+  });
+  assert.equal(hasProblem(hybridFindings, SCENARIOS), true);
+
+  // Unprefixed hybrid server: direct tool + unprefixed lookup run tool. Non-direct ability stays behind lookup
+  // when directTools is disabled, and reports not-direct-tool (not missing) when directTools requires it.
+  const unprefixedHybrid: ListedServer = {
+    tools: [
+      tool('core-get-site-info', 'Reads site info.', { readOnlyHint: true }),
+      tool('mcp-adapter-discover-abilities'),
+      tool('mcp-adapter-execute-ability'),
+    ],
+    schemaFindings: [],
+  };
+  assert.deepEqual(compareWithPacks([PACK], unprefixedHybrid, LOOKUP), {
+    outcome: 'compared',
+    onSite: ['core/get-site-info'],
+    missing: [],
+    inNoPack: [],
+  });
+  const unprefixedFindings = compareWithPacks([PACK], unprefixedHybrid, LOOKUP, { directTools: ['core/update-site-title'] });
+  assert.deepEqual(unprefixedFindings, {
+    outcome: 'compared',
+    onSite: ['core/get-site-info'],
+    missing: [],
+    inNoPack: [],
+    definitionFindings: [
+      {
+        ability: 'core/update-site-title',
+        severity: 'error',
+        rule: 'not-direct-tool',
+        path: 'tools',
+        issue: 'The ability `core/update-site-title` is not exposed as a direct tool (`core-update-site-title`) in `tools/list`; it is only reachable through `mcp-adapter-execute-ability`.',
+        suggestion: 'Expose `core/update-site-title` as an individually callable MCP tool (`core-update-site-title`) on the server, or remove it from `serverChecks.directTools`.',
+      },
+    ],
+  });
+  assert.equal(hasProblem(unprefixedFindings, SCENARIOS), true);
+  assert.equal(scenariosLeftOut(SCENARIOS, unprefixedFindings).size, 0);
+});
+
+test('resolveServerChecks merges project defaults with per-site overrides', () => {
+  assert.deepEqual(
+    resolveServerChecks(
+      {
+        requiredHints: ['readOnlyHint', 'destructiveHint'],
+        hints: {
+          'core/get-site-info': { readOnlyHint: true, openWorldHint: false },
+          'core/update-site-title': { destructiveHint: true },
+        },
+        directTools: true,
+      },
+      {
+        requiredHints: [],
+        hints: { 'core/get-site-info': { openWorldHint: true } },
+        directTools: false,
+      },
+    ),
+    {
+      requiredHints: [],
+      hints: {
+        'core/get-site-info': { readOnlyHint: true, openWorldHint: true },
+        'core/update-site-title': { destructiveHint: true },
+      },
+      directTools: false,
+    },
+  );
 });
 
 test('inspector output parser keeps tool metadata, annotations, schemas, version and schemaFindings paths', () => {

@@ -14,7 +14,10 @@ function InspectorRunBadge({ run }: { run: RunListing }) {
   const wrap = (badge: ReactNode) => <span className="nowrap-badge">{badge}</span>;
   if (checks === undefined) return wrap(<Badge intent="none">Not checked</Badge>);
   if (checks.outcome === 'unreadable') return wrap(<Badge intent="high">Unreadable</Badge>);
-  if (checks.outcome === 'behind-lookup') return wrap(<Badge intent="informational">Lookup</Badge>);
+  if (checks.outcome === 'behind-lookup') {
+    const errors = (checks.definitionFindings ?? []).filter(({ severity }) => severity === 'error').length;
+    return errors > 0 ? wrap(<Badge intent="high">{`Lookup · ${errors} err`}</Badge>) : wrap(<Badge intent="informational">Lookup</Badge>);
+  }
   const findings = checks.definitionFindings ?? [];
   const errors = findings.filter(({ severity }) => severity === 'error').length;
   const warnings = findings.length - errors;

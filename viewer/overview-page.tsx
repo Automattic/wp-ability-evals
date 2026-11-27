@@ -108,7 +108,9 @@ function KpiGrid({ overview, snapshot }: { overview: Overview; snapshot?: Server
       : site.findings.outcome === 'unreadable'
         ? 'Server could not be reached'
         : site.findings.outcome === 'behind-lookup'
-          ? `Via ${site.findings.runTools.join(', ')}`
+          ? audit.counts.errors > 0
+            ? `${counted(audit.counts.errors, 'error')} · via ${site.findings.runTools.join(', ')}`
+            : `Via ${site.findings.runTools.join(', ')}`
           : audit.counts.errors > 0
             ? `${counted(audit.counts.errors, 'error')}, ${counted(audit.counts.warnings, 'warning')}`
             : audit.counts.warnings > 0

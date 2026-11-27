@@ -96,6 +96,65 @@ test('buildInspectorAudit separates input vs output schema warnings, groups rule
   );
 });
 
+test('buildInspectorAudit reports opt-in hint and direct-tool failures on compared and behind-lookup servers', () => {
+  const comparedAudit = buildInspectorAudit(
+    {
+      outcome: 'compared',
+      onSite: ['wp/media-query'],
+      missing: [],
+      inNoPack: [],
+      definitionFindings: [
+        { ability: 'wp/media-query', severity: 'error', rule: 'missing-hint', path: 'annotations.destructiveHint', issue: 'Omitted destructiveHint.', suggestion: 'Set destructiveHint.' },
+        { ability: 'wp/media-upload', severity: 'error', rule: 'not-direct-tool', path: 'tools', issue: 'Behind lookup.', suggestion: 'Expose directly.' },
+      ],
+    },
+    [],
+    [ability('wp/media-query', 'read'), ability('wp/media-upload', 'write')],
+    PACKS,
+  );
+
+  assert.equal(comparedAudit.checks.find((check) => check.id === 'annotations')?.status, 'fail');
+  assert.equal(comparedAudit.checks.find((check) => check.id === 'direct-tools')?.status, 'fail');
+  assert.equal(comparedAudit.counts.metadataIssues, 2);
+  assert.deepEqual(
+    comparedAudit.tools.map(({ toolName, status, errors }) => ({ toolName, status, errors })),
+    [
+      { toolName: 'wp-media-query', status: 'on-site', errors: 1 },
+      { toolName: 'wp-media-upload', status: 'behind-lookup', errors: 1 },
+    ],
+  );
+
+  const lookupAudit = buildInspectorAudit(
+    {
+      outcome: 'behind-lookup',
+      runTools: ['mcp-adapter-execute-ability'],
+      definitionFindings: [
+        { ability: 'wp/media-upload', severity: 'error', rule: 'not-direct-tool', path: 'tools', issue: 'Behind lookup.', suggestion: 'Expose directly.' },
+      ],
+    },
+    [],
+    [ability('wp/media-query', 'read'), ability('wp/media-upload', 'write')],
+    PACKS,
+  );
+
+  assert.deepEqual(
+    lookupAudit.checks.map(({ id, status }) => ({ id, status })),
+    [
+      { id: 'handshake', status: 'pass' },
+      { id: 'direct-tools', status: 'fail' },
+    ],
+  );
+  assert.deepEqual(
+    lookupAudit.tools.map(({ toolName, status, errors }) => ({ toolName, status, errors })),
+    [
+      { toolName: 'mcp-adapter-execute-ability', status: 'lookup', errors: 0 },
+      { toolName: 'wp-media-upload', status: 'behind-lookup', errors: 1 },
+    ],
+  );
+  assert.equal(lookupAudit.counts.errors, 1);
+  assert.equal(lookupAudit.ruleGroups[0]?.rule, 'not-direct-tool');
+});
+
 test('toolInputPreview renders compact argument summaries and truncates long values', () => {
   assert.equal(toolInputPreview({}), '');
   assert.equal(toolInputPreview({ fields: ['email'], force: true }), 'fields: ["email"], force: true');

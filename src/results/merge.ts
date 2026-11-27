@@ -5,11 +5,29 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { runFilePath } from './read.ts';
-import type { AgentModels, RanOn, RunFile, ScenarioState, TrialSummary, Verdict, VerdictOutcome } from './types.ts';
+import type { AgentModels, RanOn, RunFile, ScenarioState, ServerFindings, TrialSummary, Verdict, VerdictOutcome } from './types.ts';
 import { runFolder } from './write.ts';
 
 const RUN_FILE = 'run.json';
 const SERVER_FILE = 'server.json';
+
+/**
+ * Picks which run (in newest-first order) supplies the active MCP server audit: if the newest readable run
+ * (`compared` or `behind-lookup`) is a `behind-lookup` run with contract findings, select it so direct-tool
+ * regressions are not masked; otherwise prefer the newest `compared` run (so a clean lookup run preserves
+ * an older full audit without reviving stale lookup errors), falling back to the newest run with any checks.
+ */
+export function selectServerAudit<T>(runsNewestFirst: readonly T[], checksOf: (item: T) => ServerFindings | undefined): T | undefined {
+  const newestReadable = runsNewestFirst.find((item) => {
+    const checks = checksOf(item);
+    return checks !== undefined && checks.outcome !== 'unreadable';
+  });
+  if (newestReadable !== undefined) {
+    const checks = checksOf(newestReadable);
+    if (checks?.outcome === 'behind-lookup' && (checks.definitionFindings?.length ?? 0) > 0) return newestReadable;
+  }
+  return runsNewestFirst.find((item) => checksOf(item)?.outcome === 'compared') ?? runsNewestFirst.find((item) => checksOf(item) !== undefined);
+}
 
 export interface MergeRunsOptions {
   /** Paths to saved run folders (each holding `run.json` and its `trials/`). */
@@ -149,11 +167,8 @@ export async function mergeRuns({ sources, resultsDir, startedAt: customStart }:
     ),
   );
 
-  const serverSource =
-    loaded.find(({ run }) => run.serverChecks?.outcome === 'compared') ?? loaded.find(({ run }) => run.serverChecks !== undefined);
-  const snapshotSource =
-    (serverSource !== undefined && existsSync(join(serverSource.dir, SERVER_FILE)) ? serverSource : undefined) ??
-    loaded.find(({ dir }) => existsSync(join(dir, SERVER_FILE)));
+  const serverSource = selectServerAudit([...loaded].reverse(), ({ run }) => run.serverChecks);
+  const snapshotSource = serverSource !== undefined && existsSync(join(serverSource.dir, SERVER_FILE)) ? serverSource : undefined;
   const mcpServer = loaded.find(({ run }) => run.mcpServer !== undefined)?.run.mcpServer;
   const models = mergeModels(loaded, agents);
   const errors = loaded.flatMap(({ run }) => run.errors ?? []);

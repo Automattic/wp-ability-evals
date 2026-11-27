@@ -5,6 +5,7 @@
 import type { ToolCall } from '../agents/types.ts';
 import { ranBy } from '../checks/abilities.ts';
 import type { Pack } from '../packs/types.ts';
+import { selectServerAudit } from '../results/merge.ts';
 import { ranOn } from '../results/models.ts';
 import type {
   AbilityCoverage,
@@ -340,29 +341,39 @@ function storiesOf(packs: Pack[], latest: Map<string, LatestResult>): StoryOverv
   });
 }
 
-/** The newest of `runs` that compared the server with the packs, falling back to the newest run with any server checks. */
+/**
+ * The newest of `runs` that supplies the active MCP server audit. A newest `behind-lookup` run with contract
+ * findings is surfaced directly; a newer clean `behind-lookup` run clears older lookup findings while still
+ * preserving an older `compared` audit when one exists.
+ */
 function lastChecked(runs: RunListing[]): RunListing | undefined {
-  return runs.find((run) => run.serverChecks?.outcome === 'compared') ?? runs.find((run) => run.serverChecks !== undefined);
+  return selectServerAudit(runs, (run) => run.serverChecks);
 }
 
-/** The abilities the newest server checks among `runs` found missing. None when none was compared. */
+/** The newest of `runs` that compared directly exposed tools against the packs. */
+function lastCompared(runs: RunListing[]): RunListing | undefined {
+  return runs.find((run) => run.serverChecks?.outcome === 'compared');
+}
+
+/** The abilities the newest compared server check among `runs` found missing. None when none was compared. */
 function missingIn(runs: RunListing[]): string[] {
-  const checked = lastChecked(runs)?.serverChecks;
+  const checked = lastCompared(runs)?.serverChecks;
   return checked?.outcome === 'compared' ? checked.missing : [];
 }
 
-/** The definition problems the newest server checks among `runs` found. None when none was compared. */
+/** The definition problems the active server check among `runs` found. None when the server was unreadable. */
 function definitionFindingsIn(runs: RunListing[]): DefinitionFinding[] {
   const checked = lastChecked(runs)?.serverChecks;
-  return checked?.outcome === 'compared' ? (checked.definitionFindings ?? []) : [];
+  if (checked === undefined || checked.outcome === 'unreadable') return [];
+  return checked.definitionFindings ?? [];
 }
 
 /**
- * How many listed abilities the newest server checks among `runs` found on the site, as the packs were then.
+ * How many listed abilities the newest compared server check among `runs` found on the site, as the packs were then.
  * Before any checks compared the site with the packs, every ability the packs list now counts as on it.
  */
 function onSiteIn(runs: RunListing[], listed: string[]): number {
-  const checked = lastChecked(runs)?.serverChecks;
+  const checked = lastCompared(runs)?.serverChecks;
   return checked?.outcome === 'compared' ? checked.onSite.length : listed.length;
 }
 
@@ -463,7 +474,7 @@ export function overviewOf({ packs, runs, latest }: OverviewInput): Overview {
             runId: checked.id,
             startedAt: checked.startedAt,
             findings: checked.serverChecks,
-            notBuilt: abilitiesNotBuilt(missing, allScenarios),
+            notBuilt: checked.serverChecks.outcome === 'compared' ? abilitiesNotBuilt(checked.serverChecks.missing, allScenarios) : [],
             ...(checked.hasServerSnapshot ? { hasServerSnapshot: true as const } : {}),
           },
         }),

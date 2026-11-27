@@ -5,6 +5,7 @@ import type { EntityType, SiteState } from '../entities/types.ts';
 import type { McpServer } from '../mcp-server.ts';
 import type { Pack } from '../packs/types.ts';
 import type { Scenario, SiteChange } from '../scenarios/types.ts';
+import type { ServerCheckConfig } from '../server-checks/types.ts';
 
 /**
  * What happens to a site after a run.
@@ -22,6 +23,8 @@ export interface SiteFile {
   packs: string[];
   /** What happens to the site after a run. Defaults to `keep`. */
   afterRun?: AfterRun;
+  /** Optional per-site override for `serverChecks` in `evals.config.ts`. */
+  serverChecks?: ServerCheckConfig;
   /**
    * For a `wp-env` site: its wp-env configuration (WordPress version, plugins, port), as in a `.wp-env.json`.
    * A path that starts with `.` is read from the project folder.

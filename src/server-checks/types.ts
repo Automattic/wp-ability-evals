@@ -2,20 +2,50 @@
 // abilities it presents, which it lacks, which of its tools no pack lists, and what is wrong in the listed
 // abilities' definitions.
 
-/** One problem found in an ability's MCP tool definition: schema portability, missing description or read/write annotation. */
+/** One problem found in an ability's MCP tool definition or contract: schema portability, description, annotation hints, or direct exposure. */
 export interface DefinitionFinding {
   /** The listed ability whose tool definition has the problem, as its pack names it. */
   ability: string;
   /** `error` fails `site check`; `warning` is reported without failing it. Neither leaves a scenario out of a run. */
   severity: 'error' | 'warning';
-  /** Short rule name, such as `boolean-schema`, `type-union`, `missing-description` or `read-only-mismatch`. */
+  /** Short rule name, such as `boolean-schema`, `type-union`, `missing-description`, `read-only-mismatch`, `missing-hint`, `hint-mismatch`, or `not-direct-tool`. */
   rule: string;
-  /** Where in the tool definition the problem sits, such as `inputSchema.properties.id`, `description` or `annotations.readOnlyHint`. */
+  /** Where in the tool definition the problem sits, such as `inputSchema.properties.id`, `description`, `annotations.destructiveHint`, or `tools`. */
   path: string;
   /** What is wrong. */
   issue: string;
   /** How to fix it. */
   suggestion: string;
+}
+
+/** The four boolean MCP tool annotation hints reported by `tools/list`. */
+export type ToolHint = 'readOnlyHint' | 'destructiveHint' | 'idempotentHint' | 'openWorldHint';
+
+/** Expected explicit boolean values for MCP tool annotation hints on one ability. */
+export type ExpectedHints = Partial<Record<ToolHint, boolean>>;
+
+/**
+ * Opt-in contract checks that `site check` (and the server checks before a run) enforce on what the site's
+ * MCP server advertises in `tools/list`. Leave omitted to keep default behavior (optional hints and lookup /
+ * hybrid servers allowed).
+ */
+export interface ServerCheckConfig {
+  /**
+   * MCP tool annotation hints that every directly exposed listed ability must explicitly advertise as a boolean.
+   * An omitted hint fails as missing; an explicit `false` passes.
+   */
+  requiredHints?: ToolHint[];
+  /**
+   * Expected explicit boolean hint values per ability name (as listed in `pack.yaml`).
+   * An omitted hint fails as missing and does not match an expected `false`.
+   */
+  hints?: Record<string, ExpectedHints>;
+  /**
+   * Listed abilities that must appear as individually callable direct tools in `tools/list` rather than only
+   * behind a lookup or generic executor tool. Pass `true` to require every listed ability on the site, a list
+   * of specific ability names, or `false` (for example in a site file override) to disable the check.
+   */
+  directTools?: boolean | string[];
 }
 
 /** MCP tool annotations reported by `tools/list`. */
@@ -91,6 +121,11 @@ export type ServerFindings =
       inspectorVersion?: string;
       /** The server's tools that run any ability. */
       runTools: string[];
+      /**
+       * Problems found by opt-in server contract checks (for example, abilities required to be exposed as
+       * direct tools that are only reachable behind lookup). Omitted when none were found.
+       */
+      definitionFindings?: DefinitionFinding[];
     }
   | {
       /** The server could not be read, so nothing is known about its abilities. */

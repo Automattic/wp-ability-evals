@@ -321,6 +321,8 @@ export function AbilityDrawer({
                   {(ability?.kind ?? tool?.kind) !== undefined && (
                     <Badge intent="none">{(ability?.kind ?? tool?.kind) === 'read' ? 'reads the site' : 'changes the site'}</Badge>
                   )}
+                  {tool?.status === 'behind-lookup' && <Badge intent="informational">behind lookup</Badge>}
+                  {tool?.status === 'lookup' && <Badge intent="none">lookup tool</Badge>}
                   {tool?.status === 'unlisted' && <Badge intent="medium">in no pack</Badge>}
                 </Stack>
 

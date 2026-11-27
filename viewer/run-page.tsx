@@ -151,10 +151,23 @@ function RunInspectorCard({ run }: { run: RunFile }) {
     );
   }
   if (checks.outcome === 'behind-lookup') {
+    const findings = checks.definitionFindings ?? [];
+    const errors = findings.filter(({ severity }) => severity === 'error').length;
+    if (errors === 0) {
+      return (
+        <Notice.Root intent="info">
+          <Notice.Title>MCP Inspector found lookup execution tools</Notice.Title>
+          <Notice.Description>Abilities ran through {checks.runTools.join(', ')}, so tools/list did not enumerate individual abilities.</Notice.Description>
+        </Notice.Root>
+      );
+    }
     return (
-      <Notice.Root intent="info">
-        <Notice.Title>MCP Inspector found lookup execution tools</Notice.Title>
-        <Notice.Description>Abilities ran through {checks.runTools.join(', ')}, so tools/list did not enumerate individual abilities.</Notice.Description>
+      <Notice.Root intent="error">
+        <Notice.Title>{`MCP Inspector contract check failed (${counted(errors, 'error')})`}</Notice.Title>
+        <Notice.Description>
+          Abilities ran through {checks.runTools.join(', ')}, and {counted(errors, 'ability', 'abilities')} required to be exposed directly failed:{' '}
+          {findings.map((finding) => finding.ability).join(', ')}. <Link href={INSPECTOR_HREF}>Open full MCP Inspector view</Link>
+        </Notice.Description>
       </Notice.Root>
     );
   }
@@ -163,6 +176,14 @@ function RunInspectorCard({ run }: { run: RunFile }) {
   const errors = findings.filter(({ severity }) => severity === 'error').length;
   const inputWarnings = findings.filter((item) => item.severity === 'warning' && findingScope(item) === 'input').length;
   const outputWarnings = findings.filter((item) => item.severity === 'warning' && findingScope(item) === 'output').length;
+  const metadataFindings = findings.filter((item) => findingScope(item) === 'metadata').length;
+  const summaryParts = [
+    inputWarnings > 0 ? `${inputWarnings} inputSchema warnings` : '',
+    outputWarnings > 0 ? `${outputWarnings} outputSchema warnings` : '',
+    metadataFindings > 0 ? counted(metadataFindings, 'metadata finding') : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
   const total = checks.onSite.length + checks.missing.length;
 
   return (
@@ -182,17 +203,27 @@ function RunInspectorCard({ run }: { run: RunFile }) {
             Exposed <strong>{checks.onSite.length}</strong> of <strong>{total}</strong> listed pack abilities
             {checks.missing.length > 0 && ` (${checks.missing.length} missing: ${checks.missing.join(', ')})`}
             {checks.inNoPack.length > 0 && ` · ${checks.inNoPack.length} unlisted tools`}
-            {findings.length > 0 && ` · ${inputWarnings} inputSchema warnings, ${outputWarnings} outputSchema warnings`}.{' '}
+            {summaryParts !== '' && ` · ${summaryParts}`}.{' '}
             <Link href={INSPECTOR_HREF}>Open full MCP Inspector view</Link>
           </Text>
           {groups.length > 0 && (
             <ul className="run-rule-list" role="list">
-              {groups.map((group) => (
-                <li key={`${group.severity}:${group.rule}`}>
-                  <Badge intent={group.severity === 'error' ? 'high' : 'medium'}>{group.severity}</Badge>{' '}
-                  <code>{group.rule}</code>: {counted(group.count, 'finding')} across {counted(group.abilities.length, 'ability', 'abilities')} ({group.inputCount} input, {group.outputCount} output)
-                </li>
-              ))}
+              {groups.map((group) => {
+                const scopes = [
+                  group.inputCount > 0 ? `${group.inputCount} input` : '',
+                  group.outputCount > 0 ? `${group.outputCount} output` : '',
+                  group.metadataCount > 0 ? `${group.metadataCount} metadata` : '',
+                ]
+                  .filter(Boolean)
+                  .join(', ');
+                return (
+                  <li key={`${group.severity}:${group.rule}`}>
+                    <Badge intent={group.severity === 'error' ? 'high' : 'medium'}>{group.severity}</Badge>{' '}
+                    <code>{group.rule}</code>: {counted(group.count, 'finding')} across {counted(group.abilities.length, 'ability', 'abilities')}
+                    {scopes !== '' && ` (${scopes})`}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Stack>
