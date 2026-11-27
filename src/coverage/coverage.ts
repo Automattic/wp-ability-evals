@@ -351,10 +351,11 @@ function missingIn(runs: RunListing[]): string[] {
   return checked?.outcome === 'compared' ? checked.missing : [];
 }
 
-/** The definition problems the newest server checks among `runs` found. None when none was compared. */
+/** The definition problems the newest server checks among `runs` found. None when the server was unreadable. */
 function definitionFindingsIn(runs: RunListing[]): DefinitionFinding[] {
   const checked = lastChecked(runs)?.serverChecks;
-  return checked?.outcome === 'compared' ? (checked.definitionFindings ?? []) : [];
+  if (checked === undefined || checked.outcome === 'unreadable') return [];
+  return checked.definitionFindings ?? [];
 }
 
 /**

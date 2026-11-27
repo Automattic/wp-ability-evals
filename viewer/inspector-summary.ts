@@ -138,6 +138,11 @@ export function buildInspectorAudit(
   const inspectorLabel = versionNote === undefined ? 'MCP Inspector (--strict)' : `MCP Inspector v${versionNote} (--strict)`;
 
   if (findings.outcome === 'behind-lookup') {
+    const definitions = findings.definitionFindings ?? [];
+    const errors = definitions.filter((item) => item.severity === 'error');
+    const warnings = definitions.filter((item) => item.severity === 'warning');
+    const metadataIssues = definitions.filter((item) => findingScope(item) === 'metadata').length;
+    const directToolFindings = definitions.filter((item) => item.rule === 'not-direct-tool');
     const rawTools: ListedTool[] = snapshot?.tools ?? findings.runTools.map((name) => ({ name }));
     const tools: InspectedToolRow[] = rawTools.map((tool) => ({
       id: tool.name,
@@ -153,19 +158,38 @@ export function buildInspectorAudit(
       outputWarnings: 0,
       findings: [],
     }));
+    const checks: InspectorCheck[] = [
+      {
+        id: 'handshake',
+        label: 'MCP server handshake & tool listing',
+        status: 'pass',
+        summary: `Connected via ${inspectorLabel}`,
+        detail: `Server exposes lookup execution tools (${findings.runTools.join(', ')}), so individual abilities are discovered at runtime rather than listed directly by tools/list.`,
+      },
+      ...(directToolFindings.length === 0
+        ? []
+        : [
+            {
+              id: 'direct-tools',
+              label: 'Required direct tools',
+              status: 'fail' as const,
+              summary: `${plural(directToolFindings.length, 'ability', 'abilities')} behind lookup`,
+              detail: `${plural(directToolFindings.length, 'required ability', 'required abilities')} (${directToolFindings.map((item) => item.ability).join(', ')}) are only reachable through lookup tools instead of appearing directly in tools/list.`,
+            },
+          ]),
+    ];
     return {
-      checks: [
-        {
-          id: 'handshake',
-          label: 'MCP server handshake & tool listing',
-          status: 'pass',
-          summary: `Connected via ${inspectorLabel}`,
-          detail: `Server exposes lookup execution tools (${findings.runTools.join(', ')}), so individual abilities are discovered at runtime rather than listed directly by tools/list.`,
-        },
-      ],
-      ruleGroups: [],
+      checks,
+      ruleGroups: groupFindingsByRule(definitions),
       tools,
-      counts: emptyCounts,
+      counts: {
+        errors: errors.length,
+        warnings: warnings.length,
+        inputWarnings: 0,
+        outputWarnings: 0,
+        metadataIssues,
+        affectedAbilities: new Set(definitions.map((item) => item.ability)).size,
+      },
     };
   }
 
@@ -179,7 +203,10 @@ export function buildInspectorAudit(
   const outputErrors = outputFindings.filter((item) => item.severity === 'error');
   const outputWarnings = outputFindings.filter((item) => item.severity === 'warning');
   const missingDescriptions = definitions.filter((item) => item.rule === 'missing-description');
-  const readOnlyMismatches = definitions.filter((item) => item.rule === 'read-only-mismatch');
+  const annotationFindings = definitions.filter((item) => item.rule === 'read-only-mismatch' || item.rule === 'missing-hint' || item.rule === 'hint-mismatch');
+  const annotationAbilities = new Set(annotationFindings.map((item) => item.ability)).size;
+  const directToolFindings = definitions.filter((item) => item.rule === 'not-direct-tool');
+  const metadataIssues = definitions.filter((item) => findingScope(item) === 'metadata').length;
 
   const notBuiltSet = new Set(notBuilt);
   const missingReal = findings.missing.filter((ability) => !notBuiltSet.has(ability));
@@ -221,14 +248,25 @@ export function buildInspectorAudit(
     },
     {
       id: 'annotations',
-      label: 'Read/write annotations (readOnlyHint)',
-      status: readOnlyMismatches.length > 0 ? 'fail' : 'pass',
-      summary: `${findings.onSite.length - readOnlyMismatches.length} of ${findings.onSite.length} aligned`,
+      label: 'Tool annotations & hints',
+      status: annotationFindings.length > 0 ? 'fail' : 'pass',
+      summary: `${findings.onSite.length - annotationAbilities} of ${findings.onSite.length} aligned`,
       detail:
-        readOnlyMismatches.length > 0
-          ? `${plural(readOnlyMismatches.length, 'ability', 'abilities')} advertise a readOnlyHint that contradicts pack.yaml reads/writes.`
-          : 'No readOnlyHint contradicts pack.yaml reads or writes declarations.',
+        annotationFindings.length > 0
+          ? `${plural(annotationFindings.length, 'annotation issue')} across ${plural(annotationAbilities, 'ability', 'abilities')} (readOnlyHint alignment or configured hint contract).`
+          : 'All tool annotations match pack.yaml reads/writes and any configured hint contract.',
     },
+    ...(directToolFindings.length === 0
+      ? []
+      : [
+          {
+            id: 'direct-tools',
+            label: 'Required direct tools',
+            status: 'fail' as const,
+            summary: `${plural(directToolFindings.length, 'ability', 'abilities')} behind lookup`,
+            detail: `${plural(directToolFindings.length, 'required ability', 'required abilities')} (${directToolFindings.map((item) => item.ability).join(', ')}) are only reachable through lookup tools instead of appearing directly in tools/list.`,
+          },
+        ]),
     {
       id: 'input-schemas',
       label: 'Input schema portability (--strict)',
@@ -314,7 +352,7 @@ export function buildInspectorAudit(
       warnings: warnings.length,
       inputWarnings: inputWarnings.length,
       outputWarnings: outputWarnings.length,
-      metadataIssues: missingDescriptions.length + readOnlyMismatches.length,
+      metadataIssues,
       affectedAbilities: new Set(definitions.map((item) => item.ability)).size,
     },
   };

@@ -4,6 +4,7 @@
 
 export { defineConfig } from './config/define.ts';
 export type { Config } from './config/types.ts';
+export type { ExpectedHints, ServerCheckConfig, ToolHint } from './server-checks/types.ts';
 
 export { claudeCode } from './agents/claude-code.ts';
 export { codex } from './agents/codex.ts';

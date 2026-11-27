@@ -151,10 +151,23 @@ function RunInspectorCard({ run }: { run: RunFile }) {
     );
   }
   if (checks.outcome === 'behind-lookup') {
+    const findings = checks.definitionFindings ?? [];
+    const errors = findings.filter(({ severity }) => severity === 'error').length;
+    if (errors === 0) {
+      return (
+        <Notice.Root intent="info">
+          <Notice.Title>MCP Inspector found lookup execution tools</Notice.Title>
+          <Notice.Description>Abilities ran through {checks.runTools.join(', ')}, so tools/list did not enumerate individual abilities.</Notice.Description>
+        </Notice.Root>
+      );
+    }
     return (
-      <Notice.Root intent="info">
-        <Notice.Title>MCP Inspector found lookup execution tools</Notice.Title>
-        <Notice.Description>Abilities ran through {checks.runTools.join(', ')}, so tools/list did not enumerate individual abilities.</Notice.Description>
+      <Notice.Root intent="error">
+        <Notice.Title>{`MCP Inspector contract check failed (${counted(errors, 'error')})`}</Notice.Title>
+        <Notice.Description>
+          Abilities ran through {checks.runTools.join(', ')}, and {counted(errors, 'ability', 'abilities')} required to be exposed directly failed:{' '}
+          {findings.map((finding) => finding.ability).join(', ')}. <Link href={INSPECTOR_HREF}>Open full MCP Inspector view</Link>
+        </Notice.Description>
       </Notice.Root>
     );
   }

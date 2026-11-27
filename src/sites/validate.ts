@@ -1,7 +1,8 @@
-// The rules a site file must follow. Only `kind`, `packs` and `afterRun` are the same for every kind of site;
-// the rest belongs to the kind, so keys this file does not know are left alone.
+// The rules a site file must follow. Only `kind`, `packs`, `afterRun` and `serverChecks` are the same for every
+// kind of site; the rest belongs to the kind, so keys this file does not know are left alone.
 
 import { isOneOf, isRecord, isText, isTextList } from '../files/shape.ts';
+import { serverCheckConfigProblems } from '../server-checks/validate.ts';
 import type { AfterRun } from './types.ts';
 
 const AFTER_RUN: readonly AfterRun[] = ['keep', 'stop', 'remove'];
@@ -24,6 +25,7 @@ export function siteFileProblems(value: unknown): string[] {
   if (value.afterRun !== undefined && !isOneOf(value.afterRun, AFTER_RUN)) {
     problems.push(`\`afterRun\` must be one of: ${AFTER_RUN.join(', ')}. It says what happens to the site after a run; leave it out to keep the site running`);
   }
+  problems.push(...serverCheckConfigProblems(value.serverChecks));
   if (value.kind === 'wp-env') problems.push(...wpEnvProblems(value));
   return problems;
 }

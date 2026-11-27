@@ -77,6 +77,29 @@ Before running any trials, `run` inspects the site's MCP server once using MCP I
 
 Every live run also saves the raw MCP Inspector tool listing to `server.json` in the run folder.
 
+### Opt-in tool contract checks (`serverChecks`)
+
+Both MCP and the WordPress Abilities API treat annotation hints as optional, and valid servers may expose abilities through lookup tools or a hybrid surface. Projects that want stricter contract checks on what `tools/list` advertises can opt in under `serverChecks` in `evals.config.ts` (and override per site under `serverChecks` in `sites/<name>.json`):
+
+```ts
+// evals.config.ts
+export default defineConfig({
+  // ...
+  serverChecks: {
+    requiredHints: ['readOnlyHint', 'destructiveHint'],
+    hints: {
+      'woocommerce/order-create': { destructiveHint: false },
+      'woocommerce/order-delete': { destructiveHint: true },
+    },
+    directTools: ['woocommerce/order-create'], // or `true` for all listed abilities, `false` to disable
+  },
+});
+```
+
+- **`requiredHints`**: MCP hint fields (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) that every directly exposed listed ability must explicitly advertise as a boolean. An omitted hint fails as `missing-hint`, whereas an explicit `false` passes.
+- **`hints`**: Per-ability expected boolean values (keyed by ability names from `pack.yaml`). An omitted hint fails as `missing-hint` (even when `false` is expected), and a conflicting boolean fails as `hint-mismatch`. `validate` rejects unknown ability names or `readOnlyHint` values that contradict `pack.yaml` `reads`/`writes`.
+- **`directTools`**: Listed abilities that must appear as individually callable tools in `tools/list` (`true` requires every listed ability on the site; `false` disables the check in a site override). When an enabled ability is reachable only through a lookup or generic executor tool on a lookup or hybrid server, `site check` fails with `not-direct-tool` naming the ability and lookup tool(s). Lookup and hybrid behavior is unchanged when disabled, and `run` records the finding without skipping runnable lookup trials.
+
 ## How the agent reaches abilities
 
 A new project's `sites/local.json` loads the MCP Adapter together with the package's bundled `abilities-as-tools` plugin:

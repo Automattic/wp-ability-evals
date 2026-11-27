@@ -5,6 +5,7 @@
 
 import { existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
+import { CONFIG_FILE } from '../config/load.ts';
 import type { LoadedConfig } from '../config/types.ts';
 import { BUILT_IN_ENTITY_TYPES } from '../entities/registry.ts';
 import type { EntityType } from '../entities/types.ts';
@@ -15,6 +16,7 @@ import { abilityOf } from '../scenarios/abilities.ts';
 import { storyFilePath } from '../scenarios/load.ts';
 import { isOperator } from '../scenarios/operators.ts';
 import type { Scenario, SiteExpectation, StartingContent, Story } from '../scenarios/types.ts';
+import type { ServerCheckConfig } from '../server-checks/types.ts';
 import { siteFilePath } from '../sites/load.ts';
 import { BUILT_IN_SITE_KINDS } from '../sites/registry.ts';
 import type { SiteFile } from '../sites/types.ts';
@@ -134,18 +136,59 @@ function unknownPackProblem(name: string, packs: Pack[], config: LoadedConfig, p
   return `${known}. \`${join(path, MANIFEST_FILE)}\` is there, but \`packs\` in evals.config.ts does not list its folder: add \`./${path}\` to it`;
 }
 
+/**
+ * What is wrong with the ability names and `readOnlyHint` expectations in a `serverChecks` block, compared with
+ * the packs in scope (all packs for `evals.config.ts`, or the site's packs for `sites/<name>.json`).
+ */
+function serverChecksCrossProblems(
+  checks: ServerCheckConfig | undefined,
+  scopeReads: Set<string>,
+  scopeWrites: Set<string>,
+  known: Known,
+  sitePacks?: string[],
+): string[] {
+  if (checks === undefined) return [];
+  const problems: string[] = [];
+  const missingMessage = (where: string, ability: string): string =>
+    known.reads.has(ability) || known.writes.has(ability)
+      ? `\`${where}\`: none of this site's packs (${(sitePacks ?? []).join(', ')}) lists \`${ability}\``
+      : `\`${where}\`: no pack lists \`${ability}\`; add it to \`reads\` or \`writes\` in its pack's ${MANIFEST_FILE}`;
+
+  for (const [ability, expected] of Object.entries(checks.hints ?? {})) {
+    if (!scopeReads.has(ability) && !scopeWrites.has(ability)) {
+      problems.push(missingMessage('serverChecks.hints', ability));
+      continue;
+    }
+    if (expected.readOnlyHint === true && scopeWrites.has(ability)) {
+      problems.push(`\`serverChecks.hints['${ability}'].readOnlyHint\` is \`true\`, but its pack lists \`${ability}\` under \`writes\``);
+    } else if (expected.readOnlyHint === false && scopeReads.has(ability)) {
+      problems.push(`\`serverChecks.hints['${ability}'].readOnlyHint\` is \`false\`, but its pack lists \`${ability}\` under \`reads\``);
+    }
+  }
+  if (Array.isArray(checks.directTools)) {
+    for (const ability of checks.directTools) {
+      if (!scopeReads.has(ability) && !scopeWrites.has(ability)) {
+        problems.push(missingMessage('serverChecks.directTools', ability));
+      }
+    }
+  }
+  return problems;
+}
+
 function siteProblems(site: SiteFile, packs: Pack[], config: LoadedConfig, known: Known, projectDir: string): string[] {
   const problems: string[] = [];
   const kinds = Object.keys(config.siteKinds);
   if (!kinds.includes(site.kind)) {
     problems.push(`\`kind\` is \`${site.kind}\`, which is not a kind of site; there are: ${kinds.join(', ')}. A project adds its own under \`siteKinds\` in its config`);
   }
+  const sitePacks: Pack[] = [];
   for (const name of site.packs) {
     const pack = packs.find((candidate) => candidate.name === name);
     if (pack === undefined) {
       problems.push(unknownPackProblem(name, packs, config, projectDir));
       continue;
     }
+    sitePacks.push(pack);
     // A built-in kind reads the site through each entity type's reader for it. Through the type's writer it puts
     // starting content on the site, and `verify` makes the change a scenario expects. A project's own kind
     // reads and writes in its own way.
@@ -173,6 +216,9 @@ function siteProblems(site: SiteFile, packs: Pack[], config: LoadedConfig, known
       }
     }
   }
+  const siteReads = new Set(sitePacks.flatMap((pack) => pack.abilities.reads));
+  const siteWrites = new Set(sitePacks.flatMap((pack) => pack.abilities.writes));
+  problems.push(...serverChecksCrossProblems(site.serverChecks, siteReads, siteWrites, known, site.packs));
   return problems;
 }
 
@@ -184,6 +230,8 @@ export function crossCheckProblems(packs: Pack[], sites: Record<string, SiteFile
     writes: new Set(packs.flatMap((pack) => pack.abilities.writes)),
   };
   const problems: Problem[] = [];
+  const configFile = join(projectDir, CONFIG_FILE);
+  problems.push(...serverChecksCrossProblems(config.serverChecks, known.reads, known.writes, known).map((message) => ({ file: configFile, message })));
   const names = new Set<string>();
   for (const pack of packs) {
     problems.push(...packProblems(pack, names, known));

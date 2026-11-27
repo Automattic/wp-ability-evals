@@ -20,6 +20,7 @@ import { summarize } from '../results/write.ts';
 import { run } from '../runner/run.ts';
 import { checkServer, findingLines, hasProblem } from '../server-checks/check.ts';
 import type { ServerFindings } from '../server-checks/types.ts';
+import { resolveServerChecks } from '../server-checks/validate.ts';
 import type { Site } from '../sites/types.ts';
 import { isProved, proofLines, summaryLines } from '../verify/report.ts';
 import { verify } from '../verify/verify.ts';
@@ -61,7 +62,8 @@ Commands:
                           check   start it as a run does, list its MCP server's tools with MCP Inspector and
                                   compare them with its packs: the abilities the packs list that the site
                                   lacks, the site's tools that no pack lists, and problems in the listed
-                                  abilities' definitions (schema portability, descriptions, annotations). A run does this first
+                                  abilities' definitions and opt-in serverChecks rules (schema portability,
+                                  descriptions, annotations/hints, direct-tool exposure). A run does this first
                           state   print what is on it, as the entity types of its packs read it
                           reset   put it back at its marked start: as the last start or run left it for
                                   its trials
@@ -215,8 +217,9 @@ async function checkSite(project: Project, target: Site, name: string): Promise<
   const checked: { findings?: ServerFindings } = {};
   const packs = project.packs.filter((pack) => target.packs.includes(pack.name));
   const scenarios = packs.flatMap((pack) => pack.scenarios);
+  const serverChecks = resolveServerChecks(project.config.serverChecks, project.sites[name]?.serverChecks);
   const problems = await endRunOn(target, hooks, setup, project.sites[name]?.afterRun ?? 'keep', async () => {
-    checked.findings = await checkServer(server, packs);
+    checked.findings = await checkServer(server, packs, serverChecks);
   });
   const findings = checked.findings ?? { outcome: 'unreadable', reason: 'The server checks did not run.' };
   for (const line of [...findingLines(findings, scenarios), ...problems]) console.log(line);

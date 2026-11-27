@@ -16,6 +16,7 @@ import { runFolder, writeRunFile, writeServerSnapshot, writeTrial } from '../res
 import { findingLines, inspectServer } from '../server-checks/check.ts';
 import { type LeftOut, scenariosLeftOut } from '../server-checks/left-out.ts';
 import type { ServerFindings } from '../server-checks/types.ts';
+import { resolveServerChecks } from '../server-checks/validate.ts';
 import { runTrial } from './run-trial.ts';
 import { verdictFor } from './verdict.ts';
 
@@ -72,7 +73,8 @@ export async function run(options: RunOptions, project: Project): Promise<RunRes
     // Read once, now that the start is marked. Before each trial the site must be as it is here, plus the
     // scenario's `given`: what a before-run hook seeded is in this reading, so no scenario has to declare it.
     const markedStart = await site.state();
-    const inspected = await inspectServer(mcpServer, packs);
+    const serverCheckConfig = resolveServerChecks(project.config.serverChecks, project.sites[options.site]?.serverChecks);
+    const inspected = await inspectServer(mcpServer, packs, serverCheckConfig);
     serverChecks = inspected.findings;
     if (inspected.snapshot !== undefined) await writeServerSnapshot(folder, inspected.snapshot);
     // Whether a missing ability is merely not built yet depends on every scenario that names it, also those `--filter` left out.

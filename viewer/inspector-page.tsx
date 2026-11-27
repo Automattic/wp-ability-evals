@@ -47,6 +47,7 @@ function RuleGroupCard({
   const inputCount = items.filter((item) => findingScope(item) === 'input').length;
   const outputCount = items.filter((item) => findingScope(item) === 'output').length;
   const scopeSummary = [inputCount > 0 ? `${inputCount} input` : '', outputCount > 0 ? `${outputCount} output` : ''].filter(Boolean).join(' · ');
+  const distinctIssues = new Set(items.map((item) => item.issue)).size > 1;
 
   return (
     <CollapsibleCard.Root defaultOpen={group.severity === 'error' || items.length <= 15}>
@@ -62,14 +63,16 @@ function RuleGroupCard({
       </CollapsibleCard.Header>
       <CollapsibleCard.Content>
         <Stack direction="column" gap="md">
-          <div className="rule-explanation">
-            <Text variant="body-sm">{group.issue}</Text>
-            {group.suggestion !== '' && (
-              <Text variant="body-sm" className="muted">
-                <strong>Suggested fix:</strong> {group.suggestion}
-              </Text>
-            )}
-          </div>
+          {!distinctIssues && (
+            <div className="rule-explanation">
+              <Text variant="body-sm">{group.issue}</Text>
+              {group.suggestion !== '' && (
+                <Text variant="body-sm" className="muted">
+                  <strong>Suggested fix:</strong> {group.suggestion}
+                </Text>
+              )}
+            </div>
+          )}
           <div className="table-scroll">
             <table className="compact-table">
               <thead>
@@ -77,6 +80,7 @@ function RuleGroupCard({
                   <th scope="col">Ability</th>
                   <th scope="col">Schema</th>
                   <th scope="col">Path</th>
+                  {distinctIssues && <th scope="col">Details</th>}
                 </tr>
               </thead>
               <tbody>
@@ -97,6 +101,7 @@ function RuleGroupCard({
                       <td>
                         <code className="schema-path">{item.path}</code>
                       </td>
+                      {distinctIssues && <td>{item.issue}</td>}
                     </tr>
                   );
                 })}

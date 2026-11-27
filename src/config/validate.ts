@@ -3,8 +3,9 @@
 
 import { isRecord, isText, isTextList, unknownKeyProblems } from '../files/shape.ts';
 import type { HookPoint } from '../hooks/types.ts';
+import { serverCheckConfigProblems } from '../server-checks/validate.ts';
 
-const KEYS = ['packs', 'sitesDir', 'resultsDir', 'agents', 'judges', 'trials', 'trialTimeoutMs', 'entityTypes', 'siteKinds', 'hooks'];
+const KEYS = ['packs', 'sitesDir', 'resultsDir', 'agents', 'judges', 'trials', 'trialTimeoutMs', 'entityTypes', 'siteKinds', 'hooks', 'serverChecks'];
 /** The points of a run, in the order they are reached. */
 const HOOK_POINTS: readonly HookPoint[] = ['beforeRun', 'beforeScenario', 'beforeTrial', 'afterTrial', 'afterScenario', 'afterRun'];
 
@@ -101,6 +102,6 @@ export function configProblems(value: unknown): string[] {
   if (typeof value.trialTimeoutMs !== 'number' || !(value.trialTimeoutMs > 0)) {
     problems.push('`trialTimeoutMs` must be a number of milliseconds above 0');
   }
-  problems.push(...entityTypeProblems(value.entityTypes), ...siteKindProblems(value.siteKinds), ...hookProblems(value.hooks));
+  problems.push(...entityTypeProblems(value.entityTypes), ...siteKindProblems(value.siteKinds), ...hookProblems(value.hooks), ...serverCheckConfigProblems(value.serverChecks));
   return problems;
 }

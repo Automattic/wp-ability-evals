@@ -9,14 +9,18 @@ import type { Scenario } from '../scenarios/types.ts';
 import { compareWithPacks } from './compare.ts';
 import { listTools } from './inspector.ts';
 import { abilitiesNotBuilt } from './left-out.ts';
-import type { DefinitionFinding, ServerFindings, ServerSnapshot } from './types.ts';
+import type { DefinitionFinding, ServerCheckConfig, ServerFindings, ServerSnapshot } from './types.ts';
 
 /** Reads the server once, returning both the pack comparison findings and the raw tool snapshot for `server.json`. */
-export async function inspectServer(server: McpServer, packs: Pack[]): Promise<{ findings: ServerFindings; snapshot?: ServerSnapshot }> {
+export async function inspectServer(
+  server: McpServer,
+  packs: Pack[],
+  config?: ServerCheckConfig,
+): Promise<{ findings: ServerFindings; snapshot?: ServerSnapshot }> {
   try {
     const listed = await listTools(server);
     return {
-      findings: compareWithPacks(packs, listed, server.lookup),
+      findings: compareWithPacks(packs, listed, server.lookup, config),
       snapshot: { ...(listed.inspectorVersion === undefined ? {} : { inspectorVersion: listed.inspectorVersion }), tools: listed.tools },
     };
   } catch (error) {
@@ -24,17 +28,20 @@ export async function inspectServer(server: McpServer, packs: Pack[]): Promise<{
   }
 }
 
-export async function checkServer(server: McpServer, packs: Pack[]): Promise<ServerFindings> {
-  return (await inspectServer(server, packs)).findings;
+export async function checkServer(server: McpServer, packs: Pack[], config?: ServerCheckConfig): Promise<ServerFindings> {
+  return (await inspectServer(server, packs, config)).findings;
 }
 
 /**
  * True when the findings show a mistake to fix: the server could not be read, it lacks an ability that the
- * packs list and that is not merely waiting to be built, or a listed ability has an error-severity definition finding.
+ * packs list and that is not merely waiting to be built, or a listed ability has an error-severity definition
+ * or contract finding.
  */
 export function hasProblem(findings: ServerFindings, scenarios: Scenario[]): boolean {
   if (findings.outcome === 'unreadable') return true;
-  if (findings.outcome !== 'compared') return false;
+  if (findings.outcome === 'behind-lookup') {
+    return (findings.definitionFindings ?? []).some((finding) => finding.severity === 'error');
+  }
   if (findings.missing.length > abilitiesNotBuilt(findings.missing, scenarios).length) return true;
   return (findings.definitionFindings ?? []).some((finding) => finding.severity === 'error');
 }
@@ -72,6 +79,7 @@ export function findingLines(findings: ServerFindings, scenarios: Scenario[], { 
   if (findings.outcome === 'behind-lookup') {
     return [
       `Note: the site's MCP server runs abilities through ${findings.runTools.map((tool) => `\`${tool}\``).join(', ')}, so its list of tools need not show every ability, and nothing was compared with the packs.`,
+      ...definitionLines(findings.definitionFindings ?? [], detail),
     ];
   }
   const lines = [`The site's MCP server presents ${findings.onSite.length} of the ${findings.onSite.length + findings.missing.length} abilities its packs list.`];

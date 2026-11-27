@@ -192,6 +192,59 @@ test('a project names its hooks by the point of a run, and a site file says what
   assert.deepEqual([sites.local?.afterRun, sites.other?.afterRun], ['stop', 'remove']);
 });
 
+test('a project may configure opt-in serverChecks in evals.config.ts and override them per site', async (t) => {
+  const dir = await newProject(t);
+  await writeFile(
+    join(dir, CONFIG_FILE),
+    settingsWith('{}').replace(
+      '  hooks: {},',
+      "  serverChecks: { requiredHints: ['readOnlyHint', 'destructiveHint'], hints: { 'core/get-site-info': { readOnlyHint: true, destructiveHint: false } }, directTools: ['core/get-site-info'] },",
+    ),
+  );
+  await writeFile(
+    join(dir, SITE_FILE),
+    JSON.stringify({ kind: 'wp-env', packs: ['core'], serverChecks: { directTools: false, hints: { 'core/get-site-info': { openWorldHint: false } } }, wpEnv: { port: 8897 } }),
+  );
+
+  const { config, sites } = await loadProject(dir);
+
+  assert.deepEqual(config.serverChecks, {
+    requiredHints: ['readOnlyHint', 'destructiveHint'],
+    hints: { 'core/get-site-info': { readOnlyHint: true, destructiveHint: false } },
+    directTools: ['core/get-site-info'],
+  });
+  assert.deepEqual(sites.local?.serverChecks, {
+    directTools: false,
+    hints: { 'core/get-site-info': { openWorldHint: false } },
+  });
+});
+
+test('loading a project rejects unknown abilities and contradicting readOnlyHint in serverChecks', async (t) => {
+  const dir = await newProject(t);
+  await writeFile(
+    join(dir, CONFIG_FILE),
+    settingsWith('{}').replace(
+      '  hooks: {},',
+      "  serverChecks: { hints: { 'core/get-site-info': { readOnlyHint: false }, 'core/does-not-exist': { destructiveHint: true } }, directTools: ['core/missing'] },",
+    ),
+  );
+  await writeFile(
+    join(dir, SITE_FILE),
+    JSON.stringify({ kind: 'wp-env', packs: ['core'], serverChecks: { directTools: ['core/not-in-pack'] }, wpEnv: { port: 8897 } }),
+  );
+
+  await assert.rejects(loadProject(dir), (error: unknown) => {
+    assert.ok(error instanceof InvalidProjectError);
+    assert.deepEqual(error.problems, [
+      { file: CONFIG_FILE, message: "`serverChecks.hints['core/get-site-info'].readOnlyHint` is `false`, but its pack lists `core/get-site-info` under `reads`" },
+      { file: CONFIG_FILE, message: "`serverChecks.hints`: no pack lists `core/does-not-exist`; add it to `reads` or `writes` in its pack's pack.yaml" },
+      { file: CONFIG_FILE, message: "`serverChecks.directTools`: no pack lists `core/missing`; add it to `reads` or `writes` in its pack's pack.yaml" },
+      { file: SITE_FILE, message: "`serverChecks.directTools`: no pack lists `core/not-in-pack`; add it to `reads` or `writes` in its pack's pack.yaml" },
+    ]);
+    return true;
+  });
+});
+
 test('settings that import a file of the project without its `.ts` ending are told to add it', async (t) => {
   const dir = await newProject(t);
   await mkdir(join(dir, 'extensions'));
@@ -572,6 +625,26 @@ export default defineConfig({
     messages: [
       "`entityTypes` entry 1 (`pages`): `readers.wp-env` must be text, and it is of type `object`. Write a PHP expression that returns one row per item, each with a `key` and the fields, such as `array_map(fn($p) => ['key' => $p->post_name, 'title' => $p->post_title], get_pages())`",
       "`entityTypes` entry 1 (`pages`): `writers.wp-env` must be text, and it is of type `number`. Write PHP statements that make one item have its fields, or remove it: they get `$key`, the item's key, and `$fields`, the fields to give it by name or the text `removed`, and they throw an exception to fail",
+    ],
+  },
+  {
+    name: 'invalid serverChecks shapes in a site file',
+    file: SITE_FILE,
+    content: JSON.stringify({
+      kind: 'wp-env',
+      packs: ['core'],
+      serverChecks: {
+        requiredHints: ['destructive'],
+        hints: { 'core/get-site-info': { destructiveHint: 'false', bogusHint: true } },
+        directTools: 'all',
+      },
+      wpEnv: { port: 8897 },
+    }),
+    messages: [
+      '`serverChecks.requiredHints` has invalid entries (`destructive`); valid hints are: readOnlyHint, destructiveHint, idempotentHint, openWorldHint',
+      "unknown key `bogusHint` in `serverChecks.hints['core/get-site-info']`; the keys are: readOnlyHint, destructiveHint, idempotentHint, openWorldHint",
+      "`serverChecks.hints['core/get-site-info'].destructiveHint` must be `true` or `false`, and it is of type `string`",
+      "`serverChecks.directTools` must be `true`, `false`, or a list of ability names, such as `['core/get-site-info']`",
     ],
   },
   {

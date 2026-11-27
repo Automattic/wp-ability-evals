@@ -5,6 +5,7 @@ import type { Agent } from '../agents/types.ts';
 import type { EntityType } from '../entities/types.ts';
 import type { Hooks } from '../hooks/types.ts';
 import type { Judge } from '../judge/types.ts';
+import type { ServerCheckConfig } from '../server-checks/types.ts';
 import type { SiteFactory } from '../sites/types.ts';
 
 export interface Config {
@@ -41,6 +42,12 @@ export interface Config {
    * a list of functions, run in the order written.
    */
   hooks?: Hooks;
+  /**
+   * Opt-in MCP tool contract checks enforced by `site check` (and recorded before a run): hints that must be
+   * explicit, expected hint values per ability, and abilities that must appear as direct tools in `tools/list`.
+   * Individual site files may override this block under `serverChecks`.
+   */
+  serverChecks?: ServerCheckConfig;
 }
 
 /**
