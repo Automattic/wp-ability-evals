@@ -116,6 +116,13 @@ test('buildInspectorAudit reports opt-in hint and direct-tool failures on compar
   assert.equal(comparedAudit.checks.find((check) => check.id === 'annotations')?.status, 'fail');
   assert.equal(comparedAudit.checks.find((check) => check.id === 'direct-tools')?.status, 'fail');
   assert.equal(comparedAudit.counts.metadataIssues, 2);
+  assert.deepEqual(
+    comparedAudit.tools.map(({ toolName, status, errors }) => ({ toolName, status, errors })),
+    [
+      { toolName: 'wp-media-query', status: 'on-site', errors: 1 },
+      { toolName: 'wp-media-upload', status: 'behind-lookup', errors: 1 },
+    ],
+  );
 
   const lookupAudit = buildInspectorAudit(
     {
@@ -135,6 +142,13 @@ test('buildInspectorAudit reports opt-in hint and direct-tool failures on compar
     [
       { id: 'handshake', status: 'pass' },
       { id: 'direct-tools', status: 'fail' },
+    ],
+  );
+  assert.deepEqual(
+    lookupAudit.tools.map(({ toolName, status, errors }) => ({ toolName, status, errors })),
+    [
+      { toolName: 'mcp-adapter-execute-ability', status: 'lookup', errors: 0 },
+      { toolName: 'wp-media-upload', status: 'behind-lookup', errors: 1 },
     ],
   );
   assert.equal(lookupAudit.counts.errors, 1);

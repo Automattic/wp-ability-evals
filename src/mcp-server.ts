@@ -9,8 +9,9 @@ export interface RunTool {
   /** The argument of the tool that holds the ability's input. Where an ability is a tool, the tool's input is the ability's. */
   inputArgument: string;
   /**
-   * Optional ability-name prefix routed through this tool on a hybrid server (such as `remote:`). Listed
-   * abilities with that prefix are treated as behind lookup while unprefixed abilities are compared directly.
+   * Optional ability-name prefix routed through this tool on a hybrid server (such as `remote:`). When set,
+   * only listed abilities with that prefix are treated as behind lookup; when omitted, an active run tool
+   * routes any listed ability not exposed directly.
    */
   prefix?: string;
 }

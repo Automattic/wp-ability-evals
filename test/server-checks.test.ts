@@ -263,6 +263,42 @@ test('server checks: directTools fails site check when an operation is only behi
     ],
   });
   assert.equal(hasProblem(hybridFindings, SCENARIOS), true);
+
+  // Unprefixed hybrid server: direct tool + unprefixed lookup run tool. Non-direct ability stays behind lookup
+  // when directTools is disabled, and reports not-direct-tool (not missing) when directTools requires it.
+  const unprefixedHybrid: ListedServer = {
+    tools: [
+      tool('core-get-site-info', 'Reads site info.', { readOnlyHint: true }),
+      tool('mcp-adapter-discover-abilities'),
+      tool('mcp-adapter-execute-ability'),
+    ],
+    schemaFindings: [],
+  };
+  assert.deepEqual(compareWithPacks([PACK], unprefixedHybrid, LOOKUP), {
+    outcome: 'compared',
+    onSite: ['core/get-site-info'],
+    missing: [],
+    inNoPack: [],
+  });
+  const unprefixedFindings = compareWithPacks([PACK], unprefixedHybrid, LOOKUP, { directTools: ['core/update-site-title'] });
+  assert.deepEqual(unprefixedFindings, {
+    outcome: 'compared',
+    onSite: ['core/get-site-info'],
+    missing: [],
+    inNoPack: [],
+    definitionFindings: [
+      {
+        ability: 'core/update-site-title',
+        severity: 'error',
+        rule: 'not-direct-tool',
+        path: 'tools',
+        issue: 'The ability `core/update-site-title` is not exposed as a direct tool (`core-update-site-title`) in `tools/list`; it is only reachable through `mcp-adapter-execute-ability`.',
+        suggestion: 'Expose `core/update-site-title` as an individually callable MCP tool (`core-update-site-title`) on the server, or remove it from `serverChecks.directTools`.',
+      },
+    ],
+  });
+  assert.equal(hasProblem(unprefixedFindings, SCENARIOS), true);
+  assert.equal(scenariosLeftOut(SCENARIOS, unprefixedFindings).size, 0);
 });
 
 test('resolveServerChecks merges project defaults with per-site overrides', () => {

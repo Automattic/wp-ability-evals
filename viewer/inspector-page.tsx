@@ -29,6 +29,8 @@ function ToolStatusBadge({ status }: { status: InspectedToolRow['status'] }) {
   if (status === 'on-site') return <Badge intent="stable">Exposed</Badge>;
   if (status === 'not-built') return <Badge intent="draft">Not built yet</Badge>;
   if (status === 'missing') return <Badge intent="high">Missing</Badge>;
+  if (status === 'behind-lookup') return <Badge intent="informational">Behind lookup</Badge>;
+  if (status === 'lookup') return <Badge intent="none">Lookup tool</Badge>;
   return <Badge intent="medium">In no pack</Badge>;
 }
 
@@ -47,7 +49,8 @@ function RuleGroupCard({
   const inputCount = items.filter((item) => findingScope(item) === 'input').length;
   const outputCount = items.filter((item) => findingScope(item) === 'output').length;
   const scopeSummary = [inputCount > 0 ? `${inputCount} input` : '', outputCount > 0 ? `${outputCount} output` : ''].filter(Boolean).join(' · ');
-  const distinctIssues = new Set(items.map((item) => item.issue)).size > 1;
+  const distinctIssues = new Set(items.map((item) => `${item.issue}\0${item.suggestion}`)).size > 1;
+  const representative = items[0];
 
   return (
     <CollapsibleCard.Root defaultOpen={group.severity === 'error' || items.length <= 15}>
@@ -63,12 +66,12 @@ function RuleGroupCard({
       </CollapsibleCard.Header>
       <CollapsibleCard.Content>
         <Stack direction="column" gap="md">
-          {!distinctIssues && (
+          {!distinctIssues && representative !== undefined && (
             <div className="rule-explanation">
-              <Text variant="body-sm">{group.issue}</Text>
-              {group.suggestion !== '' && (
+              <Text variant="body-sm">{representative.issue}</Text>
+              {representative.suggestion !== '' && (
                 <Text variant="body-sm" className="muted">
-                  <strong>Suggested fix:</strong> {group.suggestion}
+                  <strong>Suggested fix:</strong> {representative.suggestion}
                 </Text>
               )}
             </div>
@@ -101,7 +104,18 @@ function RuleGroupCard({
                       <td>
                         <code className="schema-path">{item.path}</code>
                       </td>
-                      {distinctIssues && <td>{item.issue}</td>}
+                      {distinctIssues && (
+                        <td>
+                          <Stack direction="column" gap="xs">
+                            <Text variant="body-sm">{item.issue}</Text>
+                            {item.suggestion !== '' && (
+                              <Text variant="body-sm" className="muted">
+                                <strong>Suggested fix:</strong> {item.suggestion}
+                              </Text>
+                            )}
+                          </Stack>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -163,6 +177,8 @@ function ToolsCatalogTable({ overview, tools, onOpen }: { overview: Overview; to
           { value: 'on-site', label: 'Exposed' },
           { value: 'missing', label: 'Missing' },
           { value: 'not-built', label: 'Not built yet' },
+          { value: 'behind-lookup', label: 'Behind lookup' },
+          { value: 'lookup', label: 'Lookup tool' },
           { value: 'unlisted', label: 'In no pack' },
         ],
         filterBy: { operators: ['isAny'] },

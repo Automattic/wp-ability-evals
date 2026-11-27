@@ -97,7 +97,7 @@ export default defineConfig({
 ```
 
 - **`requiredHints`**: MCP hint fields (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) that every directly exposed listed ability must explicitly advertise as a boolean. An omitted hint fails as `missing-hint`, whereas an explicit `false` passes.
-- **`hints`**: Per-ability expected boolean values (keyed by ability names from `pack.yaml`). An omitted hint fails as `missing-hint` (even when `false` is expected), and a conflicting boolean fails as `hint-mismatch`. `validate` rejects unknown ability names or `readOnlyHint` values that contradict `pack.yaml` `reads`/`writes`.
+- **`hints`**: Per-ability expected boolean values (keyed by ability names from `pack.yaml`), checked on directly exposed tools in `tools/list` (not abilities behind lookup). An omitted hint fails as `missing-hint` (even when `false` is expected), and a conflicting boolean fails as `hint-mismatch`. Site-level `hints` merges over project-level `hints` per ability and hint without unsetting inherited entries. `validate` rejects unknown ability names or `readOnlyHint` values that contradict `pack.yaml` `reads`/`writes`.
 - **`directTools`**: Listed abilities that must appear as individually callable tools in `tools/list` (`true` requires every listed ability on the site; `false` disables the check in a site override). When an enabled ability is reachable only through a lookup or generic executor tool on a lookup or hybrid server, `site check` fails with `not-direct-tool` naming the ability and lookup tool(s). Lookup and hybrid behavior is unchanged when disabled, and `run` records the finding without skipping runnable lookup trials.
 
 ## How the agent reaches abilities

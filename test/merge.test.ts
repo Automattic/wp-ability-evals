@@ -156,6 +156,55 @@ test('mergeRuns combines sharded runs into one unified run, recomputing verdicts
   assert.equal(copiedTrial.pass, false);
 });
 
+test('mergeRuns keeps a newer failing behind-lookup audit over an older compared shard without copying a mismatched server.json', async (t) => {
+  const work = await mkdtemp(join(tmpdir(), 'evals-merge-lookup-'));
+  t.after(() => rm(work, { recursive: true, force: true }));
+  const shardsRoot = join(work, 'shards');
+  const mergedRoot = join(work, 'merged');
+  const finding = {
+    ability: 'core/posts-list',
+    severity: 'error' as const,
+    rule: 'not-direct-tool',
+    path: 'tools',
+    issue: 'Only behind lookup.',
+    suggestion: 'Expose directly.',
+  };
+
+  const olderCompared = await writeShard(
+    shardsRoot,
+    {
+      startedAt: '2026-11-23T03:00:00.000Z',
+      site: 'staging',
+      agents: ['claude-code'],
+      trialsPerScenario: 1,
+      serverChecks: { outcome: 'compared', onSite: ['core/posts-list'], missing: [], inNoPack: [] },
+      mcpServer: { name: 'wordpress' },
+      models: [],
+      scenarios: [S1],
+      trials: [{ scenarioId: S1.id, agent: 'claude-code', trial: 1, pass: true, checks: [], durationMs: 500 }],
+      verdicts: [{ scenarioId: S1.id, state: 'implemented', outcome: 'pass', agents: [{ agent: 'claude-code', trials: 1, passed: 1 }] }],
+    },
+    { inspectorVersion: '2.16.0', tools: [{ name: 'core-posts-list' }] },
+  );
+
+  const newerFailingLookup = await writeShard(shardsRoot, {
+    startedAt: '2026-11-23T03:15:00.000Z',
+    site: 'staging',
+    agents: ['codex'],
+    trialsPerScenario: 1,
+    serverChecks: { outcome: 'behind-lookup', runTools: ['execute'], definitionFindings: [finding] },
+    mcpServer: { name: 'wordpress' },
+    models: [],
+    scenarios: [S2],
+    trials: [{ scenarioId: S2.id, agent: 'codex', trial: 1, pass: true, checks: [], durationMs: 500 }],
+    verdicts: [{ scenarioId: S2.id, state: 'implemented', outcome: 'pass', agents: [{ agent: 'codex', trials: 1, passed: 1 }] }],
+  });
+
+  const merged = await mergeRuns({ sources: [olderCompared, newerFailingLookup], resultsDir: mergedRoot });
+  assert.deepEqual(merged.runFile.serverChecks, { outcome: 'behind-lookup', runTools: ['execute'], definitionFindings: [finding] });
+  assert.equal(existsSync(join(merged.dir, 'server.json')), false);
+});
+
 test('mergeRuns rejects duplicate trials or mismatched sites instead of silently corrupting verdicts', async (t) => {
   const work = await mkdtemp(join(tmpdir(), 'evals-merge-err-'));
   t.after(() => rm(work, { recursive: true, force: true }));

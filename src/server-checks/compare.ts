@@ -148,17 +148,15 @@ function directToolFinding(ability: string, viaTools: string[]): DefinitionFindi
   };
 }
 
-/** Active lookup run tools that route `ability`. On a hybrid server, only prefixed tools route abilities behind lookup. */
-function lookupRunToolsFor(ability: string, activeRunTools: RunTool[], pureLookup: boolean): string[] {
-  if (pureLookup) {
-    const matched = activeRunTools
-      .filter((one) => one.prefix === undefined || one.prefix === '' || ability.startsWith(one.prefix))
-      .map((one) => one.tool);
-    return matched.length > 0 ? matched : activeRunTools.map((one) => one.tool);
-  }
-  return activeRunTools
-    .filter((one) => one.prefix !== undefined && one.prefix !== '' && ability.startsWith(one.prefix))
-    .map((one) => one.tool);
+/** True when `runTool` routes `ability`: either it has no prefix (runs any ability) or `ability` carries its prefix. */
+function matchesRunTool(ability: string, runTool: RunTool): boolean {
+  return runTool.prefix === undefined || runTool.prefix === '' || ability.startsWith(runTool.prefix);
+}
+
+/** Active lookup run tools that route `ability`, falling back to all active run tools on a pure-lookup server. */
+function lookupRunToolsFor(ability: string, activeRunTools: RunTool[], fallbackToAll: boolean): string[] {
+  const matched = activeRunTools.filter((one) => matchesRunTool(ability, one)).map((one) => one.tool);
+  return matched.length > 0 || !fallbackToAll ? matched : activeRunTools.map((one) => one.tool);
 }
 
 /**
@@ -194,8 +192,7 @@ export function compareWithPacks(
   const writes = new Set(packs.flatMap((pack) => pack.abilities.writes));
   const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]));
   const listedTools = new Set(listed.map(toolOf));
-  const prefixes = activeRunTools.map((one) => one.prefix).filter((prefix): prefix is string => prefix !== undefined && prefix !== '');
-  const behindLookup = (ability: string): boolean => prefixes.some((prefix) => ability.startsWith(prefix));
+  const behindLookup = (ability: string): boolean => activeRunTools.some((one) => matchesRunTool(ability, one));
   const onSite = listed.filter((ability) => toolsByName.has(toolOf(ability)));
   const directFindings = requiredDirect
     .filter((ability) => !toolsByName.has(toolOf(ability)) && behindLookup(ability))

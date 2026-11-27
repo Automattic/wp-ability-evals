@@ -34,7 +34,7 @@ export interface InspectedToolRow {
   pack?: string;
   packTitle?: string;
   kind?: 'read' | 'write';
-  status: 'on-site' | 'missing' | 'not-built' | 'unlisted';
+  status: 'on-site' | 'missing' | 'not-built' | 'behind-lookup' | 'lookup' | 'unlisted';
   title?: string;
   description?: string;
   annotations?: ToolAnnotations;
@@ -143,21 +143,42 @@ export function buildInspectorAudit(
     const warnings = definitions.filter((item) => item.severity === 'warning');
     const metadataIssues = definitions.filter((item) => findingScope(item) === 'metadata').length;
     const directToolFindings = definitions.filter((item) => item.rule === 'not-direct-tool');
+    const packTitles = new Map(packs.map((pack) => [pack.name, pack.title]));
+    const abilitiesByName = new Map(abilities.map((ability) => [ability.ability, ability]));
+    const findingsByAbility = new Map<string, DefinitionFinding[]>();
+    for (const item of definitions) findingsByAbility.set(item.ability, [...(findingsByAbility.get(item.ability) ?? []), item]);
+
     const rawTools: ListedTool[] = snapshot?.tools ?? findings.runTools.map((name) => ({ name }));
-    const tools: InspectedToolRow[] = rawTools.map((tool) => ({
-      id: tool.name,
-      toolName: tool.name,
-      status: 'unlisted',
-      ...(tool.title === undefined ? {} : { title: tool.title }),
-      ...(tool.description === undefined ? {} : { description: tool.description }),
-      ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }),
-      ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
-      ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
-      errors: 0,
-      inputWarnings: 0,
-      outputWarnings: 0,
-      findings: [],
-    }));
+    const tools: InspectedToolRow[] = [
+      ...rawTools.map((tool): InspectedToolRow => ({
+        id: `lookup:${tool.name}`,
+        toolName: tool.name,
+        status: 'lookup',
+        ...(tool.title === undefined ? {} : { title: tool.title }),
+        ...(tool.description === undefined ? {} : { description: tool.description }),
+        ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }),
+        ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
+        ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
+        errors: 0,
+        inputWarnings: 0,
+        outputWarnings: 0,
+        findings: [],
+      })),
+      ...[...findingsByAbility.entries()].map(([abilityName, itemFindings]): InspectedToolRow => {
+        const covered = abilitiesByName.get(abilityName);
+        return {
+          id: abilityName,
+          toolName: abilityName.replaceAll('/', '-'),
+          ability: abilityName,
+          ...(covered === undefined ? {} : { pack: covered.pack, packTitle: packTitles.get(covered.pack) ?? covered.pack, kind: covered.kind }),
+          status: 'behind-lookup',
+          errors: itemFindings.filter((item) => item.severity === 'error').length,
+          inputWarnings: itemFindings.filter((item) => item.severity === 'warning' && findingScope(item) === 'input').length,
+          outputWarnings: itemFindings.filter((item) => item.severity === 'warning' && findingScope(item) === 'output').length,
+          findings: itemFindings,
+        };
+      }),
+    ];
     const checks: InspectorCheck[] = [
       {
         id: 'handshake',
@@ -209,6 +230,7 @@ export function buildInspectorAudit(
   const metadataIssues = definitions.filter((item) => findingScope(item) === 'metadata').length;
 
   const notBuiltSet = new Set(notBuilt);
+  const missingSet = new Set(findings.missing);
   const missingReal = findings.missing.filter((ability) => !notBuiltSet.has(ability));
   const onSiteSet = new Set(findings.onSite);
   const listedTotal = findings.onSite.length + findings.missing.length;
@@ -304,7 +326,13 @@ export function buildInspectorAudit(
     const toolName = ability.ability.replaceAll('/', '-');
     const raw = snapshotByName.get(toolName);
     const itemFindings = findingsByAbility.get(ability.ability) ?? [];
-    const status: InspectedToolRow['status'] = onSiteSet.has(ability.ability) ? 'on-site' : notBuiltSet.has(ability.ability) ? 'not-built' : 'missing';
+    const status: InspectedToolRow['status'] = onSiteSet.has(ability.ability)
+      ? 'on-site'
+      : notBuiltSet.has(ability.ability)
+        ? 'not-built'
+        : missingSet.has(ability.ability)
+          ? 'missing'
+          : 'behind-lookup';
     return {
       id: ability.ability,
       toolName,
